@@ -73,6 +73,20 @@ export async function generateSubtitles(
     );
   }
 
+  // Normalize audio to full dynamic range — this dramatically improves
+  // transcription accuracy for clips with low recording volume.
+  let peak = 0;
+  for (let i = 0; i < audioData.length; i++) {
+    const abs = Math.abs(audioData[i]!);
+    if (abs > peak) peak = abs;
+  }
+  if (peak > 0.001 && peak < 0.95) {
+    const gain = 0.95 / peak;
+    for (let i = 0; i < audioData.length; i++) {
+      audioData[i] = audioData[i]! * gain;
+    }
+  }
+
   const MAX_RETRIES = 3;
   let attempt = 0;
 
@@ -83,12 +97,12 @@ export async function generateSubtitles(
     let isTranscribing = false;
     let timedOut = false;
     
-    // Timeout: if model doesn't load in 90s, retry
+    // Timeout: if model doesn't load in 180s (larger model ~150MB), retry
     const loadTimeout = setTimeout(() => {
       timedOut = true;
       worker.terminate();
       reject(new Error("__RETRY__"));
-    }, 90_000);
+    }, 180_000);
     
     worker.onmessage = (event) => {
       const { type, info, result, error } = event.data;

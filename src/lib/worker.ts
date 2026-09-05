@@ -3,9 +3,10 @@ import { pipeline, env } from "@xenova/transformers";
 // Disable local model loading — always fetch from Hugging Face Hub
 env.allowLocalModels = false;
 
-// We reverted back to Xenova/whisper-tiny because it is significantly faster (3x)
-// and actually performs better on short-form noisy audio without hallucinating.
-const MODEL_ID = "Xenova/whisper-tiny";
+// whisper-base (74M params) gives significantly better accuracy than whisper-tiny
+// (39M params), especially on clips >30s. First download is ~150MB but is cached
+// in the browser afterwards for instant loads.
+const MODEL_ID = "Xenova/whisper-base";
 
 let transcriber: any = null;
 
@@ -36,8 +37,8 @@ self.onmessage = async (event: MessageEvent) => {
       const { audioData, language } = payload;
 
       const out = await transcriber(audioData, {
-        chunk_length_s: 30,
-        stride_length_s: 5,
+        chunk_length_s: 25,
+        stride_length_s: 6,
         return_timestamps: "word",
         language: language === "hinglish" ? "hi" : language,
       });
