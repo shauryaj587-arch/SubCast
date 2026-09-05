@@ -1,0 +1,8 @@
+node_modules\
+.git\
+.admin_token
+Publish_Update.bat
+Export_For_Pendrive.bat
+.export_ignore.txt
+dist\
+.tanstack\
