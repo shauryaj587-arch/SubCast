@@ -15,6 +15,41 @@ function clamp01(v: number) {
   return v < 0 ? 0 : v > 1 ? 1 : v;
 }
 
+const imgCache = new Map<string, HTMLImageElement>();
+
+export function drawWatermark(
+  ctx: CanvasRenderingContext2D,
+  W: number,
+  H: number,
+  style: CaptionStyle
+) {
+  if (!style.watermarkUrl) return;
+
+  const url = style.watermarkUrl;
+  let img = imgCache.get(url);
+  if (!img) {
+    img = new Image();
+    img.src = url;
+    imgCache.set(url, img);
+  }
+
+  // Only draw if loaded
+  if (!img.complete || img.naturalWidth === 0) return;
+
+  const targetHeight = (style.watermarkSize ?? 0.1) * H;
+  const ratio = img.naturalWidth / img.naturalHeight;
+  const targetWidth = targetHeight * ratio;
+
+  const padding = H * 0.04;
+  let x = style.watermarkX !== undefined ? style.watermarkX * W : padding;
+  let y = style.watermarkY !== undefined ? style.watermarkY * H : padding;
+
+  ctx.save();
+  ctx.globalAlpha = style.watermarkOpacity ?? 1;
+  ctx.drawImage(img, x, y, targetWidth, targetHeight);
+  ctx.restore();
+}
+
 function roundRect(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -38,6 +73,18 @@ export function activeBlock(blocks: CaptionBlock[], time: number): CaptionBlock 
     if (time >= b.start && time <= b.end) return b;
   }
   return null;
+}
+
+function getFillStyle(ctx: CanvasRenderingContext2D, color: string, x: number, y: number, w: number, h: number): string | CanvasGradient {
+  if (!color || !color.startsWith("linear-gradient")) return color;
+  
+  const match = color.match(/linear-gradient\([^,]+,\s*(#[a-fA-F0-9]{6}),\s*(#[a-fA-F0-9]{6})\)/);
+  if (!match) return color;
+  
+  const grad = ctx.createLinearGradient(x, y, x + w, y);
+  grad.addColorStop(0, match[1]!);
+  grad.addColorStop(1, match[2]!);
+  return grad;
 }
 
 /**
@@ -142,7 +189,7 @@ export function drawCaptions(
     const widest = Math.max(...lines.map((l) => l.width));
     const bx = (W - widest) / 2 - padX;
     const by = top - padY + blockOffsetY;
-    ctx.fillStyle = style.blockBg;
+    ctx.fillStyle = getFillStyle(ctx, style.blockBg, bx, by, widest + padX * 2, totalH + padY * 2);
     roundRect(
       ctx,
       bx,
@@ -314,7 +361,7 @@ function drawWord(
   // active highlight box / underline
   if (isActive && style.highlight === "box" && style.activeBg) {
     const pad = size * 0.16;
-    ctx.fillStyle = style.activeBg;
+    ctx.fillStyle = getFillStyle(ctx, style.activeBg, drawX - pad * 0.8, drawY - size * 0.90, o.width + pad * 1.6, size * 1.1);
     roundRect(
       ctx,
       drawX - pad * 0.8,
@@ -326,7 +373,7 @@ function drawWord(
     ctx.fill();
   }
   if (isActive && style.highlight === "underline") {
-    ctx.fillStyle = style.activeColor;
+    ctx.fillStyle = getFillStyle(ctx, style.activeColor, drawX, drawY + size * 0.16, o.width, size * 0.09);
     const h = size * 0.09;
     roundRect(ctx, drawX, drawY + size * 0.16, o.width * easeOut(clamp01(wp * 2)), h, h / 2);
     ctx.fill();
@@ -349,17 +396,17 @@ function drawWord(
 
   if (clipRatio < 1) {
     // base color under the sweep
-    ctx.fillStyle = style.textColor;
+    ctx.fillStyle = getFillStyle(ctx, style.textColor, drawX, drawY - size * 0.8, o.width, size);
     letterSpacedText(ctx, text, drawX, drawY, o.spaceExtra, "fill");
     ctx.save();
     ctx.beginPath();
     ctx.rect(drawX - size * 0.2, drawY - size * 1.1, o.width * clipRatio + size * 0.2, size * 1.6);
     ctx.clip();
-    ctx.fillStyle = color;
+    ctx.fillStyle = getFillStyle(ctx, color, drawX, drawY - size * 0.8, o.width, size);
     letterSpacedText(ctx, text, drawX, drawY, o.spaceExtra, "fill");
     ctx.restore();
   } else {
-    ctx.fillStyle = color;
+    ctx.fillStyle = getFillStyle(ctx, color, drawX, drawY - size * 0.8, o.width, size);
     letterSpacedText(ctx, text, drawX, drawY, o.spaceExtra, "fill");
   }
 

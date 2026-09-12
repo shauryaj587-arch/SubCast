@@ -1,5 +1,5 @@
 import { ArrayBufferTarget, Muxer } from "mp4-muxer";
-import { drawCaptions } from "@/lib/captions/renderer";
+import { drawCaptions, drawWatermark } from "@/lib/captions/renderer";
 import type { CaptionBlock, CaptionStyle, ExportQuality } from "@/lib/captions/types";
 
 export const QUALITY_PRESETS: Record<
@@ -153,6 +153,7 @@ export async function exportBurnedVideo(opts: {
       await seek(video, t);
       ctx.drawImage(video, 0, 0, outW, outH);
       drawCaptions(ctx, outW, outH, t, blocks, style);
+      drawWatermark(ctx, outW, outH, style);
       const frame = new VideoFrame(canvas, { timestamp: Math.round(t * 1_000_000), duration: Math.round(1_000_000 / fps) });
       videoEncoder.encode(frame, { keyFrame: i % (fps * 2) === 0 });
       frame.close();

@@ -132,27 +132,9 @@ export async function generateSubtitles(
           return;
         }
 
-        const words: CaptionWord[] = [];
-        for (const chunk of result.chunks) {
-          if (chunk.timestamp && chunk.timestamp[0] !== null && chunk.timestamp[1] !== null) {
-            const text = chunk.text.trim();
-            if (text) {
-              const start = Number(chunk.timestamp[0].toFixed(3));
-              let end = Number(chunk.timestamp[1].toFixed(3));
-              
-              if (end - start > 0.8) {
-                end = start + 0.8;
-              }
-
-              words.push({
-                id: nextId(),
-                text: text,
-                start: start,
-                end: end,
-              });
-            }
-          }
-        }
+        const audioDuration = audioData.length / 16000; // 16kHz sample rate
+        const rawWords = collectRawWords(result.chunks);
+        const words = sanitizeWords(rawWords, audioDuration);
         
         if (words.length === 0) {
           reject(new Error("No speech was detected."));
@@ -189,4 +171,99 @@ export async function generateSubtitles(
     }
   }
   throw new Error("Could not load AI model after multiple attempts. Please check your internet and refresh.");
+}
+
+function collectRawWords(chunks: any[]): CaptionWord[] {
+  const words: CaptionWord[] = [];
+  for (const chunk of chunks) {
+    if (chunk.timestamp && chunk.timestamp[0] !== null && chunk.timestamp[1] !== null) {
+      const text = chunk.text.trim();
+      if (text) {
+        words.push({
+          id: nextId(),
+          text,
+          start: Number(chunk.timestamp[0].toFixed(3)),
+          end: Number(chunk.timestamp[1].toFixed(3)),
+        });
+      }
+    }
+  }
+  return words;
+}
+
+function sanitizeWords(rawWords: CaptionWord[], audioDuration: number): CaptionWord[] {
+  if (rawWords.length === 0) return [];
+
+  // 1. Remove duplicate/repeated phrases that whisper sometimes spits out in a loop
+  const deduped: CaptionWord[] = [];
+  let lastText = "";
+  let repeatCount = 0;
+  for (const w of rawWords) {
+    if (w.text.toLowerCase() === lastText.toLowerCase()) {
+      repeatCount++;
+      if (repeatCount > 3) continue; // Skip if repeated more than 3 times in a row
+    } else {
+      lastText = w.text;
+      repeatCount = 0;
+    }
+    deduped.push(w);
+  }
+
+  // 2. Fix overlapping words (a word shouldn't start before the previous one ends)
+  for (let i = 1; i < deduped.length; i++) {
+    if (deduped[i]!.start < deduped[i - 1]!.end) {
+      // Push the start time forward
+      deduped[i]!.start = deduped[i - 1]!.end;
+      // If end time is now behind start time, push it forward too
+      if (deduped[i]!.end <= deduped[i]!.start) {
+        deduped[i]!.end = deduped[i]!.start + 0.15;
+      }
+    }
+  }
+
+  // 3. Fix negative timestamps and zero-duration words
+  for (const w of deduped) {
+    if (w.start < 0) w.start = 0;
+    if (w.end <= w.start) w.end = w.start + 0.15; // Give it at least 150ms
+    if (w.end - w.start > 0.8) w.end = w.start + 0.8; // Max duration 800ms
+  }
+
+  // 4. Fix Hallucinated timestamps (jumping past audio duration or massive gaps)
+  let breakIdx = -1;
+  for (let i = 1; i < deduped.length; i++) {
+    const gap = deduped[i]!.start - deduped[i - 1]!.end;
+    if (gap > 2.0 || deduped[i]!.start >= audioDuration) {
+      breakIdx = i;
+      break;
+    }
+  }
+
+  if (breakIdx > 0) {
+    const lastGoodEnd = deduped[breakIdx - 1]!.end;
+    const availableTime = Math.max(0.5, audioDuration - lastGoodEnd);
+    const badWords = deduped.slice(breakIdx);
+    const totalChars = badWords.reduce((s, w) => s + Math.max(1, w.text.length), 0);
+
+    let cursor = lastGoodEnd + 0.05;
+    for (const w of badWords) {
+      const fraction = Math.max(1, w.text.length) / totalChars;
+      const dur = Math.min(0.8, availableTime * fraction * 0.9);
+      w.start = Number(cursor.toFixed(3));
+      w.end = Number((cursor + dur).toFixed(3));
+      cursor = w.end + 0.02;
+    }
+  }
+
+  // 5. Final clamp to audio duration
+  for (const w of deduped) {
+    w.start = Math.min(w.start, audioDuration - 0.1);
+    w.end = Math.min(w.end, audioDuration);
+    if (w.end <= w.start) w.end = w.start + 0.15;
+    
+    // Safety check again
+    w.start = Number(w.start.toFixed(3));
+    w.end = Number(w.end.toFixed(3));
+  }
+
+  return deduped;
 }

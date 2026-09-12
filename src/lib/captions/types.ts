@@ -62,6 +62,20 @@ export type CaptionStyle = {
   maxWidth: number;
   wordsPerBlock: number;
   align: "center" | "left" | "right";
+  /** URL to custom uploaded font */
+  customFontUrl?: string | null;
+  /** Custom font name, used to render when customFontUrl is loaded */
+  customFontName?: string | null;
+  /** URL to the uploaded logo watermark */
+  watermarkUrl?: string | null;
+  /** Watermark X position as fraction of video width (0 to 1) */
+  watermarkX?: number;
+  /** Watermark Y position as fraction of video height (0 to 1) */
+  watermarkY?: number;
+  /** Watermark opacity */
+  watermarkOpacity?: number;
+  /** Watermark size (height) as a fraction of video height */
+  watermarkSize?: number;
 };
 
 export type CaptionPreset = {

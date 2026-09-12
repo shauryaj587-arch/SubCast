@@ -45,6 +45,53 @@ function Studio() {
   const [file, setFile] = useState<File | null>(null);
   const [language, setLanguage] = useState<TranscriptLanguage>("hinglish");
   const [words, setWords] = useState<CaptionWord[]>([]);
+  const [history, setHistory] = useState<CaptionWord[][]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+
+  const dispatchWords = useCallback((
+    action: CaptionWord[] | ((prev: CaptionWord[]) => CaptionWord[]),
+    saveHistory = true
+  ) => {
+    setWords((prev) => {
+      const next = typeof action === "function" ? action(prev) : action;
+      if (next === prev) return prev;
+
+      if (saveHistory) {
+        setHistory((h) => {
+          const currentIdx = historyIndex === -1 ? h.length - 1 : historyIndex;
+          // If we haven't saved the current words yet, push them first?
+          // No, history[currentIdx] should always be the last committed state.
+          const newHistory = h.slice(0, Math.max(0, currentIdx + 1));
+          newHistory.push(next);
+          if (newHistory.length > 50) newHistory.shift();
+          return newHistory;
+        });
+        setHistoryIndex((idx) => (idx === -1 ? history.length : Math.min(49, idx + 1)));
+      }
+
+      return next;
+    });
+  }, [historyIndex]);
+
+  const undo = useCallback(() => {
+    // If current words differ from history tip (uncommitted drafts), undo should just restore the tip first!
+    if (history[historyIndex] && words !== history[historyIndex]) {
+      setWords(history[historyIndex]!);
+      return;
+    }
+    if (historyIndex > 0) {
+      setHistoryIndex((i) => i - 1);
+      setWords(history[historyIndex - 1]!);
+    }
+  }, [historyIndex, history, words]);
+
+  const redo = useCallback(() => {
+    if (historyIndex < history.length - 1 && historyIndex !== -1) {
+      setHistoryIndex((i) => i + 1);
+      setWords(history[historyIndex + 1]!);
+    }
+  }, [historyIndex, history]);
+
   const [style, setStyle] = useState<CaptionStyle>(
     () => CAPTION_PRESETS.find((p) => p.id === DEFAULT_PRESET_ID)!.style,
   );
@@ -98,6 +145,8 @@ function Studio() {
           setStatus({ busy: true, value, label }),
         );
         setWords(result);
+        setHistory([result]);
+        setHistoryIndex(0);
         setStatus({ busy: false, value: 1, label: "" });
       } catch (e) {
         setStatus({
@@ -133,17 +182,17 @@ function Studio() {
     setTime(v.currentTime);
   };
 
-  const editWord = (id: string, text: string) =>
-    setWords((ws) => ws.map((w) => (w.id === id ? { ...w, text } : w)));
+  const editWord = (id: string, text: string, saveHistory = true) =>
+    dispatchWords((ws) => ws.map((w) => (w.id === id ? { ...w, text } : w)), saveHistory);
 
   const deleteWord = (id: string) =>
-    setWords((ws) => ws.filter((w) => w.id !== id));
+    dispatchWords((ws) => ws.filter((w) => w.id !== id));
 
   const rewriteBlock = (blockId: string, text: string) => {
     const block = blocks.find((b) => b.id === blockId);
     if (!block) return;
     const replacement = retimeBlockText(block, text);
-    setWords((ws) => {
+    dispatchWords((ws) => {
       const firstIdx = ws.findIndex((w) => w.id === block.words[0]!.id);
       if (firstIdx < 0) return ws;
       return [...ws.slice(0, firstIdx), ...replacement, ...ws.slice(firstIdx + block.words.length)];
@@ -154,7 +203,7 @@ function Studio() {
     const block = blocks.find((b) => b.id === blockId);
     if (!block) return;
     const ids = new Set(block.words.map((w) => w.id));
-    setWords((ws) =>
+    dispatchWords((ws) =>
       ws.map((w) =>
         ids.has(w.id) ? { ...w, start: Math.max(0, w.start + delta), end: Math.max(0.1, w.end + delta) } : w,
       ),
@@ -165,7 +214,7 @@ function Studio() {
     const block = blocks.find((b) => b.id === blockId);
     if (!block) return;
     const ids = new Set(block.words.map((w) => w.id));
-    setWords((ws) => ws.filter((w) => !ids.has(w.id)));
+    dispatchWords((ws) => ws.filter((w) => !ids.has(w.id)));
   };
 
   const addBlock = (afterBlockId?: string | null) => {
@@ -183,7 +232,21 @@ function Studio() {
       start: at + i * 0.5,
       end: at + (i + 1) * 0.5,
     }));
-    setWords((ws) => [...ws, ...fresh].sort((a, b) => a.start - b.start));
+    dispatchWords((ws) => [...ws, ...fresh].sort((a, b) => a.start - b.start));
+  };
+
+  const bulkReplace = (find: string, replace: string) => {
+    if (!find) return;
+    dispatchWords((ws) =>
+      ws.map((w) => {
+        if (w.text.toLowerCase().includes(find.toLowerCase())) {
+          // Case insensitive replacement
+          const reg = new RegExp(find, "gi");
+          return { ...w, text: w.text.replace(reg, replace) };
+        }
+        return w;
+      })
+    );
   };
 
   return (
@@ -268,7 +331,7 @@ function Studio() {
         <main className="flex min-w-0 flex-1 flex-col items-center justify-center gap-4 p-4">
           <div className="relative flex min-h-0 w-full flex-1 items-center justify-center">
             <div className="relative h-full max-h-full">
-              <CaptionCanvas videoRef={videoRef} blocks={blocks} style={style} aspect={aspect} />
+              <CaptionCanvas videoRef={videoRef} blocks={blocks} style={style} aspect={aspect} onChangeStyle={patch} />
               {status.busy && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-xl bg-background/78 backdrop-blur-sm">
                   <div className="h-1.5 w-48 overflow-hidden rounded-full bg-surface-3">
@@ -343,6 +406,11 @@ function Studio() {
             onShiftBlock={shiftBlock}
             onDeleteBlock={deleteBlock}
             onAddBlock={addBlock}
+            onUndo={undo}
+            onRedo={redo}
+            canUndo={historyIndex > 0}
+            canRedo={historyIndex < history.length - 1 && historyIndex !== -1}
+            onBulkReplace={bulkReplace}
           />
         </aside>
       </div>
@@ -363,7 +431,7 @@ function Studio() {
                 {tab === "presets" ? <PresetGallery activeId={presetId} onPick={(p) => { setPresetId(p.id); setStyle(p.style); }} /> : <DesignPanel style={style} onChange={patch} />}
               </>
             ) : (
-              <TranscriptPanel blocks={blocks} currentTime={time} onSeek={seek} onEditWord={editWord} onDeleteWord={deleteWord} onRewriteBlock={rewriteBlock} onShiftBlock={shiftBlock} onDeleteBlock={deleteBlock} onAddBlock={addBlock} />
+              <TranscriptPanel blocks={blocks} currentTime={time} onSeek={seek} onEditWord={editWord} onDeleteWord={deleteWord} onRewriteBlock={rewriteBlock} onShiftBlock={shiftBlock} onDeleteBlock={deleteBlock} onAddBlock={addBlock} onUndo={undo} onRedo={redo} canUndo={historyIndex > 0} canRedo={historyIndex < history.length - 1 && historyIndex !== -1} onBulkReplace={bulkReplace} />
             )}
           </div>
         </div>

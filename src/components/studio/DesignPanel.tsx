@@ -1,6 +1,6 @@
 import { FONT_OPTIONS } from "@/lib/captions/presets";
 import type { CaptionAnimation, CaptionBlockAnimation, CaptionStyle, HighlightMode } from "@/lib/captions/types";
-import { ColorInput, Field, Segmented, Select, Slider } from "./ui";
+import { Button, ColorInput, Field, Segmented, Select, Slider } from "./ui";
 
 const ANIMATIONS: { value: CaptionAnimation; label: string }[] = [
   { value: "none", label: "Normal" },
@@ -39,13 +39,43 @@ export function DesignPanel({
   return (
     <div className="space-y-5">
       <Field label="Font">
-        <Select value={style.fontFamily} onChange={(v) => onChange({ fontFamily: v })}>
+        <Select value={style.customFontName ? "CUSTOM" : style.fontFamily} onChange={(v) => {
+          if (v !== "CUSTOM") onChange({ fontFamily: v, customFontUrl: null, customFontName: null });
+        }}>
+          {style.customFontName && <option value="CUSTOM">{style.customFontName} (Custom)</option>}
           {FONT_OPTIONS.map((f) => (
             <option key={f} value={f}>
               {f}
             </option>
           ))}
         </Select>
+        
+        <label className="mt-2 flex w-full items-center justify-center gap-2 h-8 rounded border border-dashed border-border bg-surface text-xs text-muted-foreground hover:bg-surface-2 cursor-pointer transition-colors">
+          <input 
+            type="file" 
+            accept=".ttf,.otf,.woff,.woff2" 
+            className="hidden" 
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (file) {
+                const url = URL.createObjectURL(file);
+                // Extract font name without extension
+                const fontName = file.name.split('.').slice(0, -1).join('.');
+                
+                // Load font dynamically
+                try {
+                  const font = new FontFace(fontName, `url(${url})`);
+                  await font.load();
+                  document.fonts.add(font);
+                  onChange({ fontFamily: fontName, customFontUrl: url, customFontName: fontName });
+                } catch (err) {
+                  alert("Failed to load custom font!");
+                }
+              }
+            }} 
+          />
+          Upload Custom Font (.ttf)
+        </label>
       </Field>
 
       <div className="grid grid-cols-2 gap-3">
@@ -115,10 +145,10 @@ export function DesignPanel({
       <div className="h-px bg-border" />
 
       <div className="space-y-2.5">
-        <ColorInput label="Text color" value={style.textColor} onChange={(v) => onChange({ textColor: v ?? "#FFFFFF" })} />
-        <ColorInput label="Active word" value={style.activeColor} onChange={(v) => onChange({ activeColor: v ?? "#C6F24E" })} />
-        <ColorInput label="Highlight box" value={style.activeBg} onChange={(v) => onChange({ activeBg: v })} allowNone />
-        <ColorInput label="Backdrop plate" value={style.blockBg} onChange={(v) => onChange({ blockBg: v })} allowNone />
+        <ColorInput label="Text color" value={style.textColor} onChange={(v) => onChange({ textColor: v ?? "#FFFFFF" })} allowGradient />
+        <ColorInput label="Active word" value={style.activeColor} onChange={(v) => onChange({ activeColor: v ?? "#C6F24E" })} allowGradient />
+        <ColorInput label="Highlight box" value={style.activeBg} onChange={(v) => onChange({ activeBg: v })} allowNone allowGradient />
+        <ColorInput label="Backdrop plate" value={style.blockBg} onChange={(v) => onChange({ blockBg: v })} allowNone allowGradient />
         <ColorInput label="Outline" value={style.strokeColor} onChange={(v) => onChange({ strokeColor: v ?? "#000000" })} />
       </div>
 
@@ -148,6 +178,42 @@ export function DesignPanel({
 
       <Slider label="Outline width" value={style.strokeWidth * 100} min={0} max={22} step={0.5} onChange={(v) => onChange({ strokeWidth: v / 100 })} />
       <Slider label="Shadow blur" value={style.shadowBlur * 100} min={0} max={60} onChange={(v) => onChange({ shadowBlur: v / 100 })} />
+
+      <div className="h-px bg-border" />
+      
+      <div className="space-y-3">
+        <div className="text-sm font-medium text-foreground">Watermark / Logo</div>
+        <div className="flex items-center gap-2">
+          {style.watermarkUrl ? (
+             <div className="flex-1 flex items-center justify-between bg-surface rounded-lg p-2 border border-border">
+                <img src={style.watermarkUrl} alt="Logo" className="h-8 max-w-[80px] object-contain" />
+                <Button variant="danger" size="sm" onClick={() => onChange({ watermarkUrl: null })}>Remove</Button>
+             </div>
+          ) : (
+            <label className="flex-1 flex items-center justify-center gap-2 h-10 rounded-lg border border-dashed border-border bg-surface text-sm text-muted-foreground hover:bg-surface-2 cursor-pointer transition-colors">
+              <input 
+                type="file" 
+                accept="image/png, image/jpeg, image/svg+xml" 
+                className="hidden" 
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    const url = URL.createObjectURL(file);
+                    onChange({ watermarkUrl: url, watermarkOpacity: style.watermarkOpacity ?? 1, watermarkX: style.watermarkX ?? 0.04, watermarkY: style.watermarkY ?? 0.04, watermarkSize: style.watermarkSize ?? 0.1 });
+                  }
+                }} 
+              />
+              Upload Logo
+            </label>
+          )}
+        </div>
+        
+        {style.watermarkUrl && (
+          <div className="space-y-4 rounded-lg border border-border bg-surface/50 p-3 mt-2">
+            <Slider label="Opacity" value={(style.watermarkOpacity ?? 1) * 100} min={10} max={100} step={1} suffix="%" onChange={(v) => onChange({ watermarkOpacity: v / 100 })} />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -132,40 +132,94 @@ export function ColorInput({
   value,
   onChange,
   allowNone,
+  allowGradient,
 }: {
   label: string;
   value: string | null;
   onChange: (v: string | null) => void;
   allowNone?: boolean;
+  allowGradient?: boolean;
 }) {
   const active = value ?? "#000000";
+  const isGradient = active.startsWith("linear-gradient");
+  
+  // Quick parser for simple linear-gradient(90deg, #color1, #color2)
+  const getGradientColors = (val: string) => {
+    const match = val.match(/linear-gradient\([^,]+,\s*(#[a-fA-F0-9]{6}),\s*(#[a-fA-F0-9]{6})\)/);
+    if (match) return [match[1], match[2]];
+    return ["#ffffff", "#000000"];
+  };
+
+  const [c1, c2] = isGradient ? getGradientColors(active) : [toHex(active), toHex(active)];
+
   return (
-    <div className="flex items-center justify-between gap-2">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <div className="flex items-center gap-1.5">
-        {allowNone && (
-          <button
-            onClick={() => onChange(value ? null : "#000000")}
-            className={cn(
-              "rounded-md px-2 py-1 text-[10px] font-medium transition-colors",
-              value ? "bg-surface-2 text-muted-foreground" : "bg-primary text-primary-foreground",
-            )}
-          >
-            OFF
-          </button>
-        )}
-        <input
-          type="color"
-          value={toHex(active)}
-          onChange={(e) => onChange(e.target.value)}
-          className="h-7 w-10 cursor-pointer rounded-md border border-border bg-transparent p-0.5"
-        />
+    <div className="flex flex-col gap-1.5 py-1">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs text-muted-foreground">{label}</span>
+        <div className="flex items-center gap-1.5">
+          {allowNone && (
+            <button
+              onClick={() => onChange(value ? null : "#000000")}
+              className={cn(
+                "rounded-md px-2 py-1 text-[10px] font-medium transition-colors",
+                value ? "bg-surface-2 text-muted-foreground" : "bg-primary text-primary-foreground",
+              )}
+            >
+              OFF
+            </button>
+          )}
+          
+          {allowGradient && value && (
+            <button
+              onClick={() => {
+                if (isGradient) {
+                  onChange(c1);
+                } else {
+                  onChange(`linear-gradient(90deg, ${c1}, #cccccc)`);
+                }
+              }}
+              className={cn(
+                "rounded-md px-2 py-1 text-[10px] font-medium transition-colors",
+                isGradient ? "bg-primary text-primary-foreground" : "bg-surface-2 text-muted-foreground",
+              )}
+            >
+              GRADIENT
+            </button>
+          )}
+
+          {!isGradient && value && (
+            <input
+              type="color"
+              value={c1}
+              onChange={(e) => onChange(e.target.value)}
+              className="h-7 w-10 cursor-pointer rounded-md border border-border bg-transparent p-0.5"
+            />
+          )}
+          
+          {isGradient && value && (
+            <div className="flex items-center gap-1">
+              <input
+                type="color"
+                value={c1}
+                onChange={(e) => onChange(`linear-gradient(90deg, ${e.target.value}, ${c2})`)}
+                className="h-7 w-8 cursor-pointer rounded-md border border-border bg-transparent p-0.5"
+              />
+              <input
+                type="color"
+                value={c2}
+                onChange={(e) => onChange(`linear-gradient(90deg, ${c1}, ${e.target.value})`)}
+                className="h-7 w-8 cursor-pointer rounded-md border border-border bg-transparent p-0.5"
+              />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
 function toHex(v: string) {
+  if (!v) return "#000000";
   if (v.startsWith("#")) return v.slice(0, 7);
   const m = v.match(/rgba?\(([^)]+)\)/);
   if (!m) return "#000000";
