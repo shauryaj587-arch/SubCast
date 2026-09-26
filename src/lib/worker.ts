@@ -3,10 +3,10 @@ import { pipeline, env } from "@xenova/transformers";
 // Disable local model loading — always fetch from Hugging Face Hub
 env.allowLocalModels = false;
 
-// whisper-base (74M params) gives significantly better accuracy than whisper-tiny
-// (39M params), especially on clips >30s. First download is ~150MB but is cached
-// in the browser afterwards for instant loads.
-const MODEL_ID = "Xenova/whisper-base";
+// whisper-tiny is significantly faster (~3x) than whisper-base.
+// The timestamp hallucination issues of tiny are now robustly mitigated 
+// by the sanitizeWords post-processing step in transcribe.ts.
+const MODEL_ID = "Xenova/whisper-tiny";
 
 let transcriber: any = null;
 

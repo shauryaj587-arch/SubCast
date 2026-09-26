@@ -39,7 +39,7 @@ function seek(video: HTMLVideoElement, time: number) {
     const timeout = window.setTimeout(() => {
       cleanup();
       reject(new Error("Video frame decoding timed out."));
-    }, 10_000);
+    }, 15_000);
     const cleanup = () => {
       video.removeEventListener("seeked", onSeeked);
       video.removeEventListener("error", onError);
@@ -47,7 +47,11 @@ function seek(video: HTMLVideoElement, time: number) {
     };
     const onSeeked = () => {
       cleanup();
-      resolve();
+      // Double-rAF ensures the decoded frame is actually composited to the
+      // video texture before we drawImage() it onto the export canvas.
+      // Note: requestVideoFrameCallback does NOT work here because it only
+      // fires while the video is playing, and during export the video is paused.
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
     };
     const onError = () => {
       cleanup();
@@ -76,12 +80,24 @@ export async function exportBurnedVideo(opts: {
   const url = URL.createObjectURL(file);
   let videoEncoder: VideoEncoder | null = null;
   let audioEncoder: AudioEncoder | null = null;
+
+  // Declare video outside try so finally can always clean it up
+  const video = document.createElement("video");
+  video.src = url;
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = "auto";
+
+  // Mount in DOM for fast hardware-accelerated frame decoding
+  video.style.position = "fixed";
+  video.style.top = "0";
+  video.style.opacity = "0.001";
+  video.style.pointerEvents = "none";
+  video.style.width = "1px";
+  video.style.height = "1px";
+  document.body.appendChild(video);
+
   try {
-    const video = document.createElement("video");
-    video.src = url;
-    video.muted = true;
-    video.playsInline = true;
-    video.preload = "auto";
 
   await new Promise<void>((resolve, reject) => {
     video.onloadedmetadata = () => resolve();
@@ -144,23 +160,31 @@ export async function exportBurnedVideo(opts: {
     height: outH,
     bitrate: preset.bitrate,
     framerate: fps,
-    latencyMode: "quality",
+    latencyMode: "realtime",
   });
 
     for (let i = 0; i < totalFrames; i++) {
       if (opts.signal?.aborted) throw new Error("Export cancelled");
       const t = i / fps;
       await seek(video, t);
+      
+      // If exporting to high res, add a subtle color/contrast punch so it actually looks "enhanced"
+      if (quality === "1440" || quality === "1080") {
+        ctx.filter = "contrast(1.05) saturate(1.1) brightness(1.02)";
+      }
       ctx.drawImage(video, 0, 0, outW, outH);
+      ctx.filter = "none";
+      
       drawCaptions(ctx, outW, outH, t, blocks, style);
       drawWatermark(ctx, outW, outH, style);
+      
       const frame = new VideoFrame(canvas, { timestamp: Math.round(t * 1_000_000), duration: Math.round(1_000_000 / fps) });
       videoEncoder.encode(frame, { keyFrame: i % (fps * 2) === 0 });
       frame.close();
 
-      // Drain encoder queue to prevent backpressure lag in the exported video
-      if (videoEncoder.encodeQueueSize > 5) {
-        await new Promise((r) => setTimeout(r, 0));
+      // Drain encoder queue to prevent backpressure
+      while (videoEncoder.encodeQueueSize > 4) {
+        await new Promise((r) => setTimeout(r, 5));
       }
 
       if (i % 8 === 0) {
@@ -214,6 +238,7 @@ export async function exportBurnedVideo(opts: {
     if (videoEncoder?.state !== "closed") videoEncoder?.close();
     if (audioEncoder?.state !== "closed") audioEncoder?.close();
     URL.revokeObjectURL(url);
+    video.remove();
   }
 }
 
