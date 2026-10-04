@@ -8,7 +8,7 @@ export const QUALITY_PRESETS: Record<
 > = {
   "720": { label: "720p", height: 720, bitrate: 5_000_000, note: "Fast, social-ready" },
   "1080": { label: "1080p", height: 1080, bitrate: 12_000_000, note: "Recommended for reels" },
-  "1440": { label: "2K enhanced", height: 1440, bitrate: 22_000_000, note: "Upscaled, sharpest text" },
+  "1440": { label: "2K", height: 1440, bitrate: 22_000_000, note: "Sharpest captions, best for large text" },
 };
 
 const CODEC_CANDIDATES = ["avc1.640034", "avc1.4d0034", "avc1.42E034", "avc1.4d0028"];
@@ -160,21 +160,15 @@ export async function exportBurnedVideo(opts: {
     height: outH,
     bitrate: preset.bitrate,
     framerate: fps,
-    latencyMode: "realtime",
+    latencyMode: "quality", // "quality" never drops frames; "realtime" can cause lag/stutter
   });
 
     for (let i = 0; i < totalFrames; i++) {
       if (opts.signal?.aborted) throw new Error("Export cancelled");
       const t = i / fps;
       await seek(video, t);
-      
-      // If exporting to high res, add a subtle color/contrast punch so it actually looks "enhanced"
-      if (quality === "1440" || quality === "1080") {
-        ctx.filter = "contrast(1.05) saturate(1.1) brightness(1.02)";
-      }
+
       ctx.drawImage(video, 0, 0, outW, outH);
-      ctx.filter = "none";
-      
       drawCaptions(ctx, outW, outH, t, blocks, style);
       drawWatermark(ctx, outW, outH, style);
       
@@ -187,9 +181,13 @@ export async function exportBurnedVideo(opts: {
         await new Promise((r) => setTimeout(r, 5));
       }
 
+      // Unified progress: bar and label always match
+      const pct = Math.round(((i + 1) / totalFrames) * 100);
+      const progressValue = pct / 100;
+      onProgress(progressValue, `Downloading… ${pct}%`);
+
+      // Yield to UI every 8 frames
       if (i % 8 === 0) {
-        const pct = Math.round(((i + 1) / totalFrames) * 100);
-        onProgress(0.05 + 0.82 * (i / totalFrames), `Downloading… ${pct}%`);
         await new Promise((r) => setTimeout(r, 0));
       }
     }

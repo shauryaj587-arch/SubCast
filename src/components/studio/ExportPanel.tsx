@@ -42,7 +42,7 @@ export function ExportPanel({
           setLabel(l);
         },
       });
-      download(blob, `${baseName}-subtitled-${QUALITY_PRESETS[quality].label}.mp4`);
+      download(blob, `${baseName}-subtitled.mp4`);
       setDone(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Export failed.");
@@ -65,28 +65,7 @@ export function ExportPanel({
           </Button>
         </div>
 
-        <div className="mt-5 space-y-2">
-          {(Object.keys(QUALITY_PRESETS) as ExportQuality[]).map((q) => (
-            <button
-              key={q}
-              disabled={busy}
-              aria-pressed={quality === q}
-              onClick={() => setQuality(q)}
-              className={cn(
-                "flex w-full items-center justify-between rounded-xl border px-4 py-3 text-left transition-all",
-                quality === q ? "border-primary/70 bg-primary/8" : "border-border bg-surface hover:bg-surface-2",
-              )}
-            >
-              <div>
-                <div className="text-sm font-semibold">{QUALITY_PRESETS[q].label}</div>
-                <div className="text-[11px] text-muted-foreground">{QUALITY_PRESETS[q].note}</div>
-              </div>
-              <span className="font-mono text-[11px] text-muted-foreground">
-                {Math.round(QUALITY_PRESETS[q].bitrate / 1_000_000)} Mbps
-              </span>
-            </button>
-          ))}
-        </div>
+
 
         {busy && (
           <div className="mt-5">
