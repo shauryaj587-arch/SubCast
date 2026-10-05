@@ -48,7 +48,7 @@ export function TranscriptPanel({
   // Keyboard shortcuts for Undo/Redo
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
         if (e.shiftKey) {
           e.preventDefault();
           onRedo();
@@ -56,15 +56,15 @@ export function TranscriptPanel({
           e.preventDefault();
           onUndo();
         }
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") {
         e.preventDefault();
         onRedo();
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onUndo, onRedo]);
-  
+
   const activeId = useMemo(() => {
     const b = blocks.find((x) => currentTime >= x.start - 0.05 && currentTime <= x.end + 0.1);
     return b?.id ?? null;
@@ -79,11 +79,45 @@ export function TranscriptPanel({
       <div className="flex flex-col gap-2 border-b border-border p-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1">
-            <button onClick={onUndo} disabled={!canUndo} className="p-1.5 text-foreground/70 hover:text-white disabled:opacity-30 transition-colors" title="Undo (Ctrl+Z)">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
+            <button
+              onClick={onUndo}
+              disabled={!canUndo}
+              className="p-1.5 text-foreground/70 hover:text-white disabled:opacity-30 transition-colors"
+              title="Undo (Ctrl+Z)"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M3 7v6h6" />
+                <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" />
+              </svg>
             </button>
-            <button onClick={onRedo} disabled={!canRedo} className="p-1.5 text-foreground/70 hover:text-white disabled:opacity-30 transition-colors" title="Redo (Ctrl+Y)">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/></svg>
+            <button
+              onClick={onRedo}
+              disabled={!canRedo}
+              className="p-1.5 text-foreground/70 hover:text-white disabled:opacity-30 transition-colors"
+              title="Redo (Ctrl+Y)"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M21 7v6h-6" />
+                <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7" />
+              </svg>
             </button>
           </div>
           <div className="flex shrink-0 gap-1 rounded-lg bg-surface p-1">
@@ -93,7 +127,9 @@ export function TranscriptPanel({
                 onClick={() => setMode(m)}
                 className={cn(
                   "rounded-md px-2 py-1 text-[11px] font-medium capitalize transition-colors",
-                  mode === m ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+                  mode === m
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground",
                 )}
               >
                 {m}
@@ -101,18 +137,40 @@ export function TranscriptPanel({
             ))}
           </div>
         </div>
-        
+
         <div className="flex items-center gap-2">
-          <TextInput placeholder="Search words…" value={query} onChange={(e) => setQuery(e.target.value)} />
-          <Button variant="outline" size="sm" onClick={() => setShowReplace(!showReplace)} className="text-xs shrink-0">
+          <TextInput
+            placeholder="Search words…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowReplace(!showReplace)}
+            className="text-xs shrink-0"
+          >
             {showReplace ? "Close" : "Replace"}
           </Button>
         </div>
 
         {showReplace && (
           <div className="flex items-center gap-2 mt-1">
-            <TextInput placeholder="Replace with…" value={replaceText} onChange={(e) => setReplaceText(e.target.value)} />
-            <Button variant="primary" size="sm" onClick={() => { onBulkReplace(query, replaceText); setReplaceText(""); }} disabled={!query} className="text-xs shrink-0">
+            <TextInput
+              placeholder="Replace with…"
+              value={replaceText}
+              onChange={(e) => setReplaceText(e.target.value)}
+            />
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => {
+                onBulkReplace(query, replaceText);
+                setReplaceText("");
+              }}
+              disabled={!query}
+              className="text-xs shrink-0"
+            >
               Replace All
             </Button>
           </div>
@@ -222,7 +280,12 @@ export function TranscriptPanel({
       </div>
 
       <div className="border-t border-border p-3">
-        <Button variant="outline" size="sm" className="w-full" onClick={() => onAddBlock(blocks[blocks.length - 1]?.id ?? null)}>
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full"
+          onClick={() => onAddBlock(blocks[blocks.length - 1]?.id ?? null)}
+        >
           + New Caption
         </Button>
       </div>

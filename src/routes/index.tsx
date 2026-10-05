@@ -42,35 +42,40 @@ const LANG_LABEL: Record<TranscriptLanguage, string> = {
 };
 
 function Studio() {
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [clipMeta, setClipMeta] = useState<{ start: number; end: number; duration: number }[]>([]);
   const [language, setLanguage] = useState<TranscriptLanguage>("hinglish");
   const [words, setWords] = useState<CaptionWord[]>([]);
-  const [history, setHistory] = useState<{ past: CaptionWord[][], present: CaptionWord[] | null, future: CaptionWord[][] }>({ past: [], present: null, future: [] });
+  const [history, setHistory] = useState<{
+    past: CaptionWord[][];
+    present: CaptionWord[] | null;
+    future: CaptionWord[][];
+  }>({ past: [], present: null, future: [] });
 
-  const dispatchWords = useCallback((
-    action: CaptionWord[] | ((prev: CaptionWord[]) => CaptionWord[]),
-    saveHistory = true
-  ) => {
-    setWords((prev) => {
-      const next = typeof action === "function" ? action(prev) : action;
-      if (next === prev) return prev;
+  const dispatchWords = useCallback(
+    (action: CaptionWord[] | ((prev: CaptionWord[]) => CaptionWord[]), saveHistory = true) => {
+      setWords((prev) => {
+        const next = typeof action === "function" ? action(prev) : action;
+        if (next === prev) return prev;
 
-      if (saveHistory) {
-        setHistory((h) => {
-          const past = h.present ? [...h.past, h.present] : h.past;
-          const newPast = past.length > 50 ? past.slice(past.length - 50) : past;
-          return { past: newPast, present: next, future: [] };
-        });
-      } else {
-        // Just update present without moving things to past
-        setHistory(h => ({ ...h, present: next }));
-      }
-      return next;
-    });
-  }, []);
+        if (saveHistory) {
+          setHistory((h) => {
+            const past = h.present ? [...h.past, h.present] : h.past;
+            const newPast = past.length > 50 ? past.slice(past.length - 50) : past;
+            return { past: newPast, present: next, future: [] };
+          });
+        } else {
+          // Just update present without moving things to past
+          setHistory((h) => ({ ...h, present: next }));
+        }
+        return next;
+      });
+    },
+    [],
+  );
 
   const undo = useCallback(() => {
-    setHistory(h => {
+    setHistory((h) => {
       if (h.past.length === 0) return h;
       const newPresent = h.past[h.past.length - 1]!;
       const newPast = h.past.slice(0, h.past.length - 1);
@@ -80,7 +85,7 @@ function Studio() {
   }, []);
 
   const redo = useCallback(() => {
-    setHistory(h => {
+    setHistory((h) => {
       if (h.future.length === 0) return h;
       const newPresent = h.future[0]!;
       const newFuture = h.future.slice(1);
@@ -117,7 +122,12 @@ function Studio() {
 
   const [tab, setTab] = useState<"presets" | "design">("presets");
   const [mobilePanel, setMobilePanel] = useState<"design" | "transcript" | null>(null);
-  const [status, setStatus] = useState<{ busy: boolean; value: number; label: string; error?: string }>({
+  const [status, setStatus] = useState<{
+    busy: boolean;
+    value: number;
+    label: string;
+    error?: string;
+  }>({
     busy: false,
     value: 0,
     label: "",
@@ -128,21 +138,43 @@ function Studio() {
   const [playing, setPlaying] = useState(false);
   const [aspect, setAspect] = useState(9 / 16);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const url = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
+  const urls = useMemo(() => files.map((f) => URL.createObjectURL(f)), [files]);
+  useEffect(() => () => void urls.forEach((u) => URL.revokeObjectURL(u)), [urls]);
 
-  useEffect(() => () => void (url && URL.revokeObjectURL(url)), [url]);
-
-  const blocks = useMemo(() => groupIntoBlocks(words, style.wordsPerBlock), [words, style.wordsPerBlock]);
+  const blocks = useMemo(
+    () => groupIntoBlocks(words, style.wordsPerBlock),
+    [words, style.wordsPerBlock],
+  );
 
   const runTranscription = useCallback(
-    async (f: File, lang: TranscriptLanguage) => {
+    async (
+      fs: File[],
+      lang: TranscriptLanguage,
+      metas: { start: number; duration: number }[],
+    ) => {
       setStatus({ busy: true, value: 0.02, label: "Preparing" });
       try {
-        const result = await generateSubtitles(f, lang, (value, label) =>
-          setStatus({ busy: true, value, label }),
-        );
-        setWords(result);
-        setHistory({ past: [], present: result, future: [] });
+        let allWords: CaptionWord[] = [];
+        for (let i = 0; i < fs.length; i++) {
+          const file = fs[i]!;
+          const meta = metas[i]!;
+          const result = await generateSubtitles(file, lang, (value, label) =>
+            setStatus({
+              busy: true,
+              value: (i + value) / fs.length,
+              label: fs.length > 1 ? `Transcribing clip ${i + 1}/${fs.length} - ${label}` : label,
+            }),
+          );
+          // Offset words
+          const offsetWords = result.map((w) => ({
+            ...w,
+            start: w.start + meta.start,
+            end: w.end + meta.start,
+          }));
+          allWords = [...allWords, ...offsetWords];
+        }
+        setWords(allWords);
+        setHistory({ past: [], present: allWords, future: [] });
         setStatus({ busy: false, value: 1, label: "" });
       } catch (e) {
         setStatus({
@@ -157,32 +189,89 @@ function Studio() {
   );
 
   const start = useCallback(
-    (f: File) => {
-      setFile(f);
+    async (fs: File[]) => {
+      setFiles(fs);
       setWords([]);
-      void runTranscription(f, language);
+      setStatus({ busy: true, value: 0, label: "Analyzing clips..." });
+
+      const metas = [];
+      let currentStart = 0;
+      for (const f of fs) {
+        const u = URL.createObjectURL(f);
+        const v = document.createElement("video");
+        v.src = u;
+        await new Promise((r) => {
+          v.onloadedmetadata = r;
+          v.onerror = r;
+        });
+        const d = v.duration || 0;
+        metas.push({ start: currentStart, end: currentStart + d, duration: d });
+        currentStart += d;
+        URL.revokeObjectURL(u);
+      }
+      setClipMeta(metas);
+      setDuration(currentStart);
+
+      void runTranscription(fs, language, metas);
     },
     [language, runTranscription],
   );
 
-  if (!file || !url) {
+  if (files.length === 0 || urls.length === 0) {
     return <UploadStage language={language} onLanguage={setLanguage} onFile={start} />;
   }
 
   const patch = (p: Partial<CaptionStyle>) => setStyle((s) => ({ ...s, ...p }));
 
+  const activeClipIndex = useMemo(() => {
+    if (!clipMeta.length) return 0;
+    const idx = clipMeta.findIndex((m) => time >= m.start && time < m.end);
+    return idx === -1 ? clipMeta.length - 1 : idx;
+  }, [time, clipMeta]);
+  const activeMeta = clipMeta[activeClipIndex];
+  const activeUrl = urls[activeClipIndex];
+
+  // Sync video.currentTime when user seeks (changes time manually)
+  const isSeeking = useRef(false);
+
   const seek = (t: number) => {
-    const v = videoRef.current;
-    if (!v) return;
-    v.currentTime = Math.max(0, Math.min(t, duration || v.duration || 0));
-    setTime(v.currentTime);
+    const target = Math.max(0, Math.min(t, duration || 0));
+    setTime(target);
+    isSeeking.current = true;
   };
+
+  useEffect(() => {
+    if (!isSeeking.current) return;
+    const v = videoRef.current;
+    if (!v || !activeMeta) return;
+    
+    // We only want to set currentTime if the video src is ready
+    const localTarget = time - activeMeta.start;
+    if (v.readyState >= 1) {
+      v.currentTime = localTarget;
+      isSeeking.current = false;
+    } else {
+      // wait for load
+      const onLoaded = () => {
+        v.currentTime = localTarget;
+        isSeeking.current = false;
+        v.removeEventListener('loadedmetadata', onLoaded);
+      };
+      v.addEventListener('loadedmetadata', onLoaded);
+    }
+  }, [time, activeMeta]);
+
+  // Handle auto-play when src changes
+  useEffect(() => {
+    if (playing && videoRef.current) {
+      videoRef.current.play().catch(() => {});
+    }
+  }, [activeUrl, playing]);
 
   const editWord = (id: string, text: string, saveHistory = true) =>
     dispatchWords((ws) => ws.map((w) => (w.id === id ? { ...w, text } : w)), saveHistory);
 
-  const deleteWord = (id: string) =>
-    dispatchWords((ws) => ws.filter((w) => w.id !== id));
+  const deleteWord = (id: string) => dispatchWords((ws) => ws.filter((w) => w.id !== id));
 
   const rewriteBlock = (blockId: string, text: string) => {
     const block = blocks.find((b) => b.id === blockId);
@@ -201,7 +290,9 @@ function Studio() {
     const ids = new Set(block.words.map((w) => w.id));
     dispatchWords((ws) =>
       ws.map((w) =>
-        ids.has(w.id) ? { ...w, start: Math.max(0, w.start + delta), end: Math.max(0.1, w.end + delta) } : w,
+        ids.has(w.id)
+          ? { ...w, start: Math.max(0, w.start + delta), end: Math.max(0.1, w.end + delta) }
+          : w,
       ),
     );
   };
@@ -241,7 +332,7 @@ function Studio() {
           return { ...w, text: w.text.replace(reg, replace) };
         }
         return w;
-      })
+      }),
     );
   };
 
@@ -251,7 +342,9 @@ function Studio() {
         <div className="flex items-center gap-4">
           <Logo />
           <div className="hidden min-w-0 items-center gap-2 sm:flex">
-            <span className="max-w-[220px] truncate text-xs text-muted-foreground">{file.name}</span>
+            <span className="max-w-[220px] truncate text-xs text-muted-foreground">
+              {file.name}
+            </span>
             <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[10px] text-muted-foreground">
               {LANG_LABEL[language]}
             </span>
@@ -273,19 +366,40 @@ function Studio() {
             <option value="hi">हिन्दी</option>
             <option value="hinglish">Hinglish</option>
           </select>
-          <Button variant="outline" size="sm" onClick={() => void runTranscription(file, language)} disabled={status.busy}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void runTranscription(file, language)}
+            disabled={status.busy}
+          >
             Re-transcribe
           </Button>
           <Button variant="ghost" size="sm" onClick={() => setFile(null)}>
             New video
           </Button>
-          <Button variant="outline" size="sm" className="lg:hidden" onClick={() => setMobilePanel("design")}>
+          <Button
+            variant="outline"
+            size="sm"
+            className="lg:hidden"
+            onClick={() => setMobilePanel("design")}
+          >
             Style
           </Button>
-          <Button variant="outline" size="sm" className="lg:hidden" onClick={() => setMobilePanel("transcript")} disabled={!words.length}>
+          <Button
+            variant="outline"
+            size="sm"
+            className="lg:hidden"
+            onClick={() => setMobilePanel("transcript")}
+            disabled={!words.length}
+          >
             Captions
           </Button>
-          <Button variant="primary" size="sm" onClick={() => setShowExport(true)} disabled={!words.length || status.busy}>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => setShowExport(true)}
+            disabled={!words.length || status.busy}
+          >
             Export
           </Button>
         </div>
@@ -301,7 +415,9 @@ function Studio() {
                 onClick={() => setTab(t)}
                 className={cn(
                   "flex-1 rounded-lg px-3 py-1.5 text-xs font-medium capitalize transition-colors",
-                  tab === t ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-surface-2",
+                  tab === t
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-surface-2",
                 )}
               >
                 {t === "presets" ? "Caption designs" : "Fine-tune"}
@@ -327,11 +443,20 @@ function Studio() {
         <main className="flex min-w-0 flex-1 flex-col items-center justify-center gap-4 p-4">
           <div className="relative flex min-h-0 w-full flex-1 items-center justify-center">
             <div className="relative h-full max-h-full">
-              <CaptionCanvas videoRef={videoRef} blocks={blocks} style={style} aspect={aspect} onChangeStyle={patch} />
+              <CaptionCanvas
+                videoRef={videoRef}
+                blocks={blocks}
+                style={style}
+                aspect={aspect}
+                onChangeStyle={patch}
+              />
               {status.busy && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-xl bg-background/78 backdrop-blur-sm">
                   <div className="h-1.5 w-48 overflow-hidden rounded-full bg-surface-3">
-                    <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${status.value * 100}%` }} />
+                    <div
+                      className="h-full rounded-full bg-primary transition-[width]"
+                      style={{ width: `${status.value * 100}%` }}
+                    />
                   </div>
                   <p className="text-xs text-muted-foreground">{status.label}</p>
                 </div>
@@ -339,19 +464,43 @@ function Studio() {
             </div>
             <video
               ref={videoRef}
-              src={url}
+              src={activeUrl}
               playsInline
               aria-hidden="true"
               tabIndex={-1}
               className="pointer-events-none absolute h-px w-px opacity-0"
               onLoadedMetadata={(e) => {
                 const v = e.currentTarget;
-                setDuration(v.duration);
-                setAspect(v.videoWidth / v.videoHeight);
+                if (!duration) {
+                  // Only set aspect based on first video
+                  setAspect(v.videoWidth / v.videoHeight);
+                }
               }}
-              onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)}
+              onTimeUpdate={(e) => {
+                if (isSeeking.current || !activeMeta) return;
+                const localTime = e.currentTarget.currentTime;
+                // If it reached the end of the clip, it will fire onEnded next.
+                // We shouldn't let it drift past its known end if it's not the last clip.
+                const newGlobal = activeMeta.start + localTime;
+                setTime(newGlobal);
+              }}
+              onEnded={() => {
+                if (activeClipIndex < clipMeta.length - 1) {
+                  // Play next clip immediately
+                  const nextMeta = clipMeta[activeClipIndex + 1];
+                  setTime(nextMeta.start);
+                } else {
+                  setPlaying(false);
+                }
+              }}
               onPlay={() => setPlaying(true)}
-              onPause={() => setPlaying(false)}
+              onPause={() => {
+                 if (activeClipIndex === clipMeta.length - 1 && videoRef.current?.ended) {
+                    setPlaying(false);
+                 } else if (time > 0 && time < duration) {
+                    setPlaying(false);
+                 }
+              }}
             />
           </div>
 
@@ -380,7 +529,9 @@ function Studio() {
               aria-label="Seek"
               className="h-1.5 flex-1 cursor-pointer appearance-none rounded-full bg-surface-3 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary"
             />
-            <span className="font-mono text-[11px] text-muted-foreground">{(duration || 0).toFixed(1)}s</span>
+            <span className="font-mono text-[11px] text-muted-foreground">
+              {(duration || 0).toFixed(1)}s
+            </span>
           </div>
 
           {status.error && (
@@ -412,29 +563,85 @@ function Studio() {
       </div>
 
       {mobilePanel && (
-        <div className="fixed inset-0 z-40 flex items-end bg-background/70 lg:hidden" role="dialog" aria-modal="true" aria-label={mobilePanel === "design" ? "Caption styles" : "Edit captions"}>
+        <div
+          className="fixed inset-0 z-40 flex items-end bg-background/70 lg:hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-label={mobilePanel === "design" ? "Caption styles" : "Edit captions"}
+        >
           <div className="max-h-[82vh] w-full overflow-y-auto rounded-t-2xl border border-border bg-background p-4 shadow-[var(--shadow-lift)]">
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="font-display text-sm font-bold">{mobilePanel === "design" ? "Caption style" : "Edit captions"}</h2>
-              <Button variant="ghost" size="icon" onClick={() => setMobilePanel(null)} aria-label="Close panel">✕</Button>
+              <h2 className="font-display text-sm font-bold">
+                {mobilePanel === "design" ? "Caption style" : "Edit captions"}
+              </h2>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setMobilePanel(null)}
+                aria-label="Close panel"
+              >
+                ✕
+              </Button>
             </div>
             {mobilePanel === "design" ? (
               <>
                 <div className="mb-3 flex gap-2">
-                  <Button variant={tab === "presets" ? "primary" : "outline"} size="sm" onClick={() => setTab("presets")}>Designs</Button>
-                  <Button variant={tab === "design" ? "primary" : "outline"} size="sm" onClick={() => setTab("design")}>Fine-tune</Button>
+                  <Button
+                    variant={tab === "presets" ? "primary" : "outline"}
+                    size="sm"
+                    onClick={() => setTab("presets")}
+                  >
+                    Designs
+                  </Button>
+                  <Button
+                    variant={tab === "design" ? "primary" : "outline"}
+                    size="sm"
+                    onClick={() => setTab("design")}
+                  >
+                    Fine-tune
+                  </Button>
                 </div>
-                {tab === "presets" ? <PresetGallery activeId={presetId} onPick={(p) => { setPresetId(p.id); setStyle(p.style); }} /> : <DesignPanel style={style} onChange={patch} />}
+                {tab === "presets" ? (
+                  <PresetGallery
+                    activeId={presetId}
+                    onPick={(p) => {
+                      setPresetId(p.id);
+                      setStyle(p.style);
+                    }}
+                  />
+                ) : (
+                  <DesignPanel style={style} onChange={patch} />
+                )}
               </>
             ) : (
-              <TranscriptPanel blocks={blocks} currentTime={time} onSeek={seek} onEditWord={editWord} onDeleteWord={deleteWord} onRewriteBlock={rewriteBlock} onShiftBlock={shiftBlock} onDeleteBlock={deleteBlock} onAddBlock={addBlock} onUndo={undo} onRedo={redo} canUndo={history.past.length > 0} canRedo={history.future.length > 0} onBulkReplace={bulkReplace} />
+              <TranscriptPanel
+                blocks={blocks}
+                currentTime={time}
+                onSeek={seek}
+                onEditWord={editWord}
+                onDeleteWord={deleteWord}
+                onRewriteBlock={rewriteBlock}
+                onShiftBlock={shiftBlock}
+                onDeleteBlock={deleteBlock}
+                onAddBlock={addBlock}
+                onUndo={undo}
+                onRedo={redo}
+                canUndo={history.past.length > 0}
+                canRedo={history.future.length > 0}
+                onBulkReplace={bulkReplace}
+              />
             )}
           </div>
         </div>
       )}
 
       {showExport && (
-        <ExportPanel file={file} blocks={blocks} style={style} onClose={() => setShowExport(false)} />
+        <ExportPanel
+          files={files}
+          blocks={blocks}
+          style={style}
+          onClose={() => setShowExport(false)}
+        />
       )}
     </div>
   );

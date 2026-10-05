@@ -17,11 +17,11 @@ export type AudioChunk = {
 
 const TARGET_RATE = 16000;
 
-
 export async function decodeToMono16k(file: File | Blob): Promise<Float32Array> {
   const arrayBuffer = await file.arrayBuffer();
   const AC: typeof AudioContext =
-    window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    window.AudioContext ||
+    (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
   const tmp = new AC();
   let decoded: AudioBuffer;
   try {
@@ -152,4 +152,3 @@ export async function buildAudioChunks(file: File | Blob): Promise<AudioChunk[]>
   }
   return chunks;
 }
-

@@ -1,4 +1,9 @@
-import { forwardRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from "react";
+import {
+  forwardRef,
+  type ButtonHTMLAttributes,
+  type InputHTMLAttributes,
+  type ReactNode,
+} from "react";
 import { cn } from "@/lib/utils";
 
 export const Button = forwardRef<
@@ -20,7 +25,8 @@ export const Button = forwardRef<
         variant === "primary" &&
           "bg-primary text-primary-foreground shadow-[var(--shadow-glow)] hover:brightness-110 active:scale-[0.98]",
         variant === "subtle" && "bg-surface-2 text-foreground hover:bg-surface-3",
-        variant === "outline" && "border border-border bg-transparent text-foreground hover:bg-surface-2",
+        variant === "outline" &&
+          "border border-border bg-transparent text-foreground hover:bg-surface-2",
         variant === "ghost" && "text-muted-foreground hover:bg-surface-2 hover:text-foreground",
         variant === "danger" && "bg-destructive/15 text-destructive hover:bg-destructive/25",
         className,
@@ -142,7 +148,7 @@ export function ColorInput({
 }) {
   const active = value ?? "#000000";
   const isGradient = active.startsWith("linear-gradient");
-  
+
   // Quick parser for simple linear-gradient(90deg, #color1, #color2)
   const getGradientColors = (val: string) => {
     const match = val.match(/linear-gradient\([^,]+,\s*(#[a-fA-F0-9]{6}),\s*(#[a-fA-F0-9]{6})\)/);
@@ -168,7 +174,7 @@ export function ColorInput({
               OFF
             </button>
           )}
-          
+
           {allowGradient && value && (
             <button
               onClick={() => {
@@ -180,7 +186,9 @@ export function ColorInput({
               }}
               className={cn(
                 "rounded-md px-2 py-1 text-[10px] font-medium transition-colors",
-                isGradient ? "bg-primary text-primary-foreground" : "bg-surface-2 text-muted-foreground",
+                isGradient
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-surface-2 text-muted-foreground",
               )}
             >
               GRADIENT
@@ -195,7 +203,7 @@ export function ColorInput({
               className="h-7 w-10 cursor-pointer rounded-md border border-border bg-transparent p-0.5"
             />
           )}
-          
+
           {isGradient && value && (
             <div className="flex items-center gap-1">
               <input
@@ -224,7 +232,10 @@ function toHex(v: string) {
   const m = v.match(/rgba?\(([^)]+)\)/);
   if (!m) return "#000000";
   const [r, g, b] = m[1]!.split(",").map((n) => Number(n.trim()));
-  const h = (n: number) => Math.max(0, Math.min(255, Math.round(n || 0))).toString(16).padStart(2, "0");
+  const h = (n: number) =>
+    Math.max(0, Math.min(255, Math.round(n || 0)))
+      .toString(16)
+      .padStart(2, "0");
   return `#${h(r!)}${h(g!)}${h(b!)}`;
 }
 

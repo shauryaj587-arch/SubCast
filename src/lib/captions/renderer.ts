@@ -21,7 +21,7 @@ export function drawWatermark(
   ctx: CanvasRenderingContext2D,
   W: number,
   H: number,
-  style: CaptionStyle
+  style: CaptionStyle,
 ) {
   if (!style.watermarkUrl) return;
 
@@ -75,12 +75,19 @@ export function activeBlock(blocks: CaptionBlock[], time: number): CaptionBlock 
   return null;
 }
 
-function getFillStyle(ctx: CanvasRenderingContext2D, color: string, x: number, y: number, w: number, h: number): string | CanvasGradient {
+function getFillStyle(
+  ctx: CanvasRenderingContext2D,
+  color: string,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+): string | CanvasGradient {
   if (!color || !color.startsWith("linear-gradient")) return color;
-  
+
   const match = color.match(/linear-gradient\([^,]+,\s*(#[a-fA-F0-9]{6}),\s*(#[a-fA-F0-9]{6})\)/);
   if (!match) return color;
-  
+
   const grad = ctx.createLinearGradient(x, y, x + w, y);
   grad.addColorStop(0, match[1]!);
   grad.addColorStop(1, match[2]!);
@@ -113,9 +120,7 @@ export function drawCaptions(
   ctx.textBaseline = "alphabetic";
   ctx.font = fontString(style, size);
 
-  const texts = block.words.map((w) =>
-    style.uppercase ? w.text.toLocaleUpperCase() : w.text,
-  );
+  const texts = block.words.map((w) => (style.uppercase ? w.text.toLocaleUpperCase() : w.text));
   const widths = texts.map((t) => ctx.measureText(t).width + spaceExtra * (t.length - 1));
   const spaceW = ctx.measureText(" ").width + spaceExtra;
 
@@ -166,7 +171,7 @@ export function drawCaptions(
     case "none":
       break;
   }
-  
+
   // Smoothly fade out the block before it disappears (only if animation is not 'none')
   if (style.blockAnimation !== "none") {
     blockAlpha *= outro;
@@ -185,25 +190,19 @@ export function drawCaptions(
   // spans [top, top + totalH]. Pad symmetrically around that.
   if (style.blockBg) {
     const padY = style.blockPadding * H;
-    const padX = (style.blockPaddingX ?? style.blockPadding * (style.blockPaddingXRatio ?? 1.7)) * H;
+    const padX =
+      (style.blockPaddingX ?? style.blockPadding * (style.blockPaddingXRatio ?? 1.7)) * H;
     const widest = Math.max(...lines.map((l) => l.width));
     const bx = (W - widest) / 2 - padX;
     const by = top - padY + blockOffsetY;
     ctx.fillStyle = getFillStyle(ctx, style.blockBg, bx, by, widest + padX * 2, totalH + padY * 2);
-    roundRect(
-      ctx,
-      bx,
-      by,
-      widest + padX * 2,
-      totalH + padY * 2,
-      style.blockRadius * H,
-    );
+    roundRect(ctx, bx, by, widest + padX * 2, totalH + padY * 2, style.blockRadius * H);
     ctx.fill();
   }
 
   lines.forEach((line, li) => {
     // Add 0.12 * size to baseY to perfectly visually center it inside the mathematical box
-    const baseY = top + li * lineHeight + size * 0.90 + blockOffsetY;
+    const baseY = top + li * lineHeight + size * 0.9 + blockOffsetY;
 
     let x =
       style.align === "left"
@@ -361,11 +360,18 @@ function drawWord(
   // active highlight box / underline
   if (isActive && style.highlight === "box" && style.activeBg) {
     const pad = size * 0.16;
-    ctx.fillStyle = getFillStyle(ctx, style.activeBg, drawX - pad * 0.8, drawY - size * 0.90, o.width + pad * 1.6, size * 1.1);
+    ctx.fillStyle = getFillStyle(
+      ctx,
+      style.activeBg,
+      drawX - pad * 0.8,
+      drawY - size * 0.9,
+      o.width + pad * 1.6,
+      size * 1.1,
+    );
     roundRect(
       ctx,
       drawX - pad * 0.8,
-      drawY - size * 0.90,
+      drawY - size * 0.9,
       o.width + pad * 1.6,
       size * 1.1,
       size * 0.16,
@@ -373,7 +379,14 @@ function drawWord(
     ctx.fill();
   }
   if (isActive && style.highlight === "underline") {
-    ctx.fillStyle = getFillStyle(ctx, style.activeColor, drawX, drawY + size * 0.16, o.width, size * 0.09);
+    ctx.fillStyle = getFillStyle(
+      ctx,
+      style.activeColor,
+      drawX,
+      drawY + size * 0.16,
+      o.width,
+      size * 0.09,
+    );
     const h = size * 0.09;
     roundRect(ctx, drawX, drawY + size * 0.16, o.width * easeOut(clamp01(wp * 2)), h, h / 2);
     ctx.fill();

@@ -250,7 +250,6 @@ export const CAPTION_PRESETS: CaptionPreset[] = [
     maxWidth: 0.74,
     positionY: 0.74,
   }),
-
 ];
 
 export const DEFAULT_PRESET_ID = "hormozi";

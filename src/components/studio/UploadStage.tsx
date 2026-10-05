@@ -16,33 +16,38 @@ export function UploadStage({
 }: {
   language: TranscriptLanguage;
   onLanguage: (l: TranscriptLanguage) => void;
-  onFile: (f: File) => void;
+  onFile: (f: File[]) => void;
 }) {
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const accept = useCallback(
-    (file: File | undefined) => {
-      if (!file) return;
-      if (!file.type.startsWith("video/")) {
-        setError("That file isn't a video. Upload an MP4, MOV or WebM reel.");
-        return;
-      }
-      if (file.size > 400 * 1024 * 1024) {
-        setError("Keep it under 400 MB — reels render much faster that way.");
+    (files: FileList | File[] | undefined | null) => {
+      if (!files || files.length === 0) return;
+      const validFiles = Array.from(files).filter(
+        (f) => f.type.startsWith("video/") && f.size <= 400 * 1024 * 1024,
+      );
+      if (validFiles.length === 0) {
+        setError("Please upload valid MP4, MOV or WebM videos under 400MB.");
         return;
       }
       setError(null);
-      onFile(file);
+      onFile(validFiles);
     },
     [onFile],
   );
 
   return (
     <main className="relative min-h-dvh overflow-hidden">
-      <div className="pointer-events-none absolute inset-0 grid-noise opacity-60" aria-hidden="true" />
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-[60vh] glow-bg" aria-hidden="true" />
+      <div
+        className="pointer-events-none absolute inset-0 grid-noise opacity-60"
+        aria-hidden="true"
+      />
+      <div
+        className="pointer-events-none absolute inset-x-0 top-0 h-[60vh] glow-bg"
+        aria-hidden="true"
+      />
 
       <header className="relative mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
         <Logo />
@@ -61,8 +66,8 @@ export function UploadStage({
           <span className="text-gradient-lime">reels stop the scroll</span>
         </h1>
         <p className="animate-rise mx-auto mt-5 max-w-xl text-[15px] leading-relaxed text-muted-foreground">
-          Drop a reel, get precise captions in seconds. Pick from a library of animated
-          caption designs, fine-tune every word, then export a burned-in MP4 with enhanced quality.
+          Drop a reel, get precise captions in seconds. Pick from a library of animated caption
+          designs, fine-tune every word, then export a burned-in MP4 with enhanced quality.
         </p>
 
         <div className="animate-rise mx-auto mt-9 max-w-md">
@@ -79,7 +84,9 @@ export function UploadStage({
                 }`}
               >
                 <div className="text-sm font-semibold">{l.label}</div>
-                <div className="mt-0.5 text-[10px] leading-tight text-muted-foreground">{l.hint}</div>
+                <div className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
+                  {l.hint}
+                </div>
               </button>
             ))}
           </div>
@@ -94,7 +101,7 @@ export function UploadStage({
           onDrop={(e) => {
             e.preventDefault();
             setDragging(false);
-            accept(e.dataTransfer.files[0]);
+            accept(e.dataTransfer.files);
           }}
           className={`animate-rise mt-6 rounded-2xl border border-dashed p-10 transition-all duration-300 ${
             dragging ? "border-primary bg-primary/8 scale-[1.01]" : "border-border bg-surface/50"
@@ -106,23 +113,39 @@ export function UploadStage({
             onClick={() => inputRef.current?.click()}
             className="mx-auto mb-4 flex h-12 w-12 animate-pulse-ring cursor-pointer items-center justify-center rounded-full bg-primary/15 transition-colors hover:bg-primary/25"
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-primary">
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              className="text-primary"
+            >
               <path d="M12 16V4m0 0L7 9m5-5 5 5" strokeLinecap="round" strokeLinejoin="round" />
               <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" strokeLinecap="round" />
             </svg>
           </button>
 
           <p className="text-sm font-medium">Drag your reel here</p>
-          <p className="mt-1 text-xs text-muted-foreground">MP4, MOV or WebM · up to 400 MB · stays on your device</p>
-          <Button variant="primary" size="lg" className="mt-6" onClick={() => inputRef.current?.click()}>
+          <p className="mt-1 text-xs text-muted-foreground">
+            MP4, MOV or WebM · up to 400 MB · stays on your device
+          </p>
+          <Button
+            variant="primary"
+            size="lg"
+            className="mt-6"
+            onClick={() => inputRef.current?.click()}
+          >
             Import video
           </Button>
           <input
             ref={inputRef}
             type="file"
+            multiple
             accept="video/*"
             className="hidden"
-            onChange={(e) => accept(e.target.files?.[0])}
+            onChange={(e) => accept(e.target.files)}
           />
           {error && <p className="mt-4 text-xs text-destructive">{error}</p>}
         </div>

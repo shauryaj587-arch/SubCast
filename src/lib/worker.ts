@@ -4,7 +4,7 @@ import { pipeline, env } from "@xenova/transformers";
 env.allowLocalModels = false;
 
 // whisper-tiny is significantly faster (~3x) than whisper-base.
-// The timestamp hallucination issues of tiny are now robustly mitigated 
+// The timestamp hallucination issues of tiny are now robustly mitigated
 // by the sanitizeWords post-processing step in transcribe.ts.
 const MODEL_ID = "Xenova/whisper-tiny";
 

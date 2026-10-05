@@ -10,7 +10,7 @@ export function groupIntoBlocks(words: CaptionWord[], perBlock: number): Caption
   const size = Math.max(1, Math.round(perBlock));
   const groups: CaptionWord[][] = [];
   let current: CaptionWord[] = [];
-  
+
   for (const w of words) {
     const prev = current[current.length - 1];
     if (prev && (w.start - prev.end > PAUSE || current.length >= size)) {
@@ -62,15 +62,13 @@ export async function generateSubtitles(
   onProgress: (value: number, label: string) => void,
 ): Promise<CaptionWord[]> {
   onProgress(0.05, "Extracting audio track...");
-  
+
   let audioData: Float32Array;
   try {
     audioData = await decodeToMono16k(file);
   } catch (err) {
     console.error("[transcribe] audio decode failed", err);
-    throw new Error(
-      "Could not read this video's audio. Make sure the clip actually has sound."
-    );
+    throw new Error("Could not read this video's audio. Make sure the clip actually has sound.");
   }
 
   // Normalize audio to full dynamic range — this dramatically improves
@@ -90,72 +88,76 @@ export async function generateSubtitles(
   const MAX_RETRIES = 3;
   let attempt = 0;
 
-  const tryOnce = (): Promise<CaptionWord[]> => new Promise((resolve, reject) => {
-    attempt++;
-    const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
-    
-    let isTranscribing = false;
-    let timedOut = false;
-    
-    // Timeout: if model doesn't load in 180s (larger model ~150MB), retry
-    const loadTimeout = setTimeout(() => {
-      timedOut = true;
-      worker.terminate();
-      reject(new Error("__RETRY__"));
-    }, 180_000);
-    
-    worker.onmessage = (event) => {
-      const { type, info, result, error } = event.data;
-      
-      if (type === "progress") {
-        if (!isTranscribing) {
-          if (info.status === "progress") {
-            onProgress(0.1 + (info.progress / 100) * 0.4, `Loading AI Model (${info.file})… ${Math.round(info.progress)}%`);
-          } else {
-             onProgress(0.1, `Loading AI Model…`);
+  const tryOnce = (): Promise<CaptionWord[]> =>
+    new Promise((resolve, reject) => {
+      attempt++;
+      const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
+
+      let isTranscribing = false;
+      let timedOut = false;
+
+      // Timeout: if model doesn't load in 180s (larger model ~150MB), retry
+      const loadTimeout = setTimeout(() => {
+        timedOut = true;
+        worker.terminate();
+        reject(new Error("__RETRY__"));
+      }, 180_000);
+
+      worker.onmessage = (event) => {
+        const { type, info, result, error } = event.data;
+
+        if (type === "progress") {
+          if (!isTranscribing) {
+            if (info.status === "progress") {
+              onProgress(
+                0.1 + (info.progress / 100) * 0.4,
+                `Loading AI Model (${info.file})… ${Math.round(info.progress)}%`,
+              );
+            } else {
+              onProgress(0.1, `Loading AI Model…`);
+            }
           }
-        }
-      } else if (type === "init_done") {
-        clearTimeout(loadTimeout);
-        isTranscribing = true;
-        onProgress(0.6, "AI Model ready! Transcribing audio…");
-        worker.postMessage({
-          type: "transcribe",
-          payload: { audioData, language },
-        });
-      } else if (type === "transcribe_done") {
-        onProgress(1.0, "Done");
-        worker.terminate();
-        
-        if (!result.chunks || result.chunks.length === 0) {
-          reject(new Error("No speech was detected."));
-          return;
-        }
+        } else if (type === "init_done") {
+          clearTimeout(loadTimeout);
+          isTranscribing = true;
+          onProgress(0.6, "AI Model ready! Transcribing audio…");
+          worker.postMessage({
+            type: "transcribe",
+            payload: { audioData, language },
+          });
+        } else if (type === "transcribe_done") {
+          onProgress(1.0, "Done");
+          worker.terminate();
 
-        const audioDuration = audioData.length / 16000; // 16kHz sample rate
-        const rawWords = collectRawWords(result.chunks);
-        const words = sanitizeWords(rawWords, audioDuration);
-        
-        if (words.length === 0) {
-          reject(new Error("No speech was detected."));
-        } else {
-          resolve(words);
+          if (!result.chunks || result.chunks.length === 0) {
+            reject(new Error("No speech was detected."));
+            return;
+          }
+
+          const audioDuration = audioData.length / 16000; // 16kHz sample rate
+          const rawWords = collectRawWords(result.chunks);
+          const words = sanitizeWords(rawWords, audioDuration);
+
+          if (words.length === 0) {
+            reject(new Error("No speech was detected."));
+          } else {
+            resolve(words);
+          }
+        } else if (type === "error") {
+          clearTimeout(loadTimeout);
+          worker.terminate();
+          reject(new Error(`AI Error: ${error}`));
         }
-      } else if (type === "error") {
+      };
+
+      worker.onerror = () => {
         clearTimeout(loadTimeout);
         worker.terminate();
-        reject(new Error(`AI Error: ${error}`));
-      }
-    };
-    
-    worker.onerror = () => {
-      clearTimeout(loadTimeout);
-      worker.terminate();
-      reject(new Error("__RETRY__"));
-    };
+        reject(new Error("__RETRY__"));
+      };
 
-    worker.postMessage({ type: "init" });
-  });
+      worker.postMessage({ type: "init" });
+    });
 
   // Retry loop
   while (attempt < MAX_RETRIES) {
@@ -170,7 +172,9 @@ export async function generateSubtitles(
       throw err;
     }
   }
-  throw new Error("Could not load AI model after multiple attempts. Please check your internet and refresh.");
+  throw new Error(
+    "Could not load AI model after multiple attempts. Please check your internet and refresh.",
+  );
 }
 
 function collectRawWords(chunks: any[]): CaptionWord[] {
@@ -259,7 +263,7 @@ function sanitizeWords(rawWords: CaptionWord[], audioDuration: number): CaptionW
     w.start = Math.min(w.start, audioDuration - 0.1);
     w.end = Math.min(w.end, audioDuration);
     if (w.end <= w.start) w.end = w.start + 0.15;
-    
+
     // Safety check again
     w.start = Number(w.start.toFixed(3));
     w.end = Number(w.end.toFixed(3));

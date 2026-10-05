@@ -27,7 +27,9 @@ export function PresetGallery({
             onClick={() => setGroup(g)}
             className={cn(
               "rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors",
-              group === g ? "bg-primary text-primary-foreground" : "bg-surface-2 text-muted-foreground hover:text-foreground",
+              group === g
+                ? "bg-primary text-primary-foreground"
+                : "bg-surface-2 text-muted-foreground hover:text-foreground",
             )}
           >
             {g}
@@ -51,7 +53,9 @@ export function PresetGallery({
               <PresetSample preset={p} />
             </div>
             <div className="mt-2 truncate text-[11px] font-medium text-foreground/85">{p.name}</div>
-            <div className="text-[9px] uppercase tracking-wider text-muted-foreground">{p.style.animation}</div>
+            <div className="text-[9px] uppercase tracking-wider text-muted-foreground">
+              {p.style.animation}
+            </div>
           </button>
         ))}
       </div>
@@ -65,7 +69,8 @@ function PresetSample({ preset }: { preset: CaptionPreset }) {
     fontFamily: `"${s.fontFamily}", Inter, sans-serif`,
     fontWeight: s.fontWeight,
     textTransform: s.uppercase ? ("uppercase" as const) : ("none" as const),
-    WebkitTextStroke: s.strokeWidth > 0 ? `${Math.min(2, s.strokeWidth * 12)}px ${s.strokeColor}` : undefined,
+    WebkitTextStroke:
+      s.strokeWidth > 0 ? `${Math.min(2, s.strokeWidth * 12)}px ${s.strokeColor}` : undefined,
     paintOrder: "stroke fill" as const,
   };
   return (

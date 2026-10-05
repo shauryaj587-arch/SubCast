@@ -78,12 +78,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { title: "SubCast — Auto Subtitles for Reels" },
       {
         name: "description",
-        content: "Auto subtitles for reels in Hindi, English and Hinglish with premium caption designs.",
+        content:
+          "Auto subtitles for reels in Hindi, English and Hinglish with premium caption designs.",
       },
       { property: "og:title", content: "SubCast — Auto Subtitles for Reels" },
       {
         property: "og:description",
-        content: "Auto subtitles for reels in Hindi, English and Hinglish with premium caption designs.",
+        content:
+          "Auto subtitles for reels in Hindi, English and Hinglish with premium caption designs.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
