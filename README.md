@@ -1,28 +1,67 @@
-# Reel Captions
+# SubCast - Setup & Run Guide
 
-I want you to help me create a website to edit my reels, basically I want a auto subtitles website to be created. So, that I can upload the video and get the auto subtitles in the video. No, other option will be there (make sure it includes only options related to subtitles/captions like- manual writing, editing words, etc..). Only video import, auto subtitles, and export with quality enhancement. It must have plenty of auto subtitles designs, just like Kapwing. I hope you understand it. In case of any query ask me right now.
+## 1. Requirement (Only Once)
+Install **Node.js** (LTS version) if not already installed:
+- Download: https://nodejs.org
 
-If possible then go through the Kapwing and check their feature of auto subtitles. We will generate subtitles for only 3 languages, Hindi, English and Hinglish. Do you understand. Like it doesn't have any subtitles effect, transitions, animations, options, etc..
+---
 
-Make sure that the UI and UX is good, attractive, premium feel. Because it will design the future of my product. In case of any doubts ask me right now.
+## 2. GitHub Setup
 
-This project was built with [Lovable](https://lovable.dev).
+### Option A: Via Terminal (Copy & Paste)
+```bash
+# 1. Clone repository
+git clone <YOUR_REPOSITORY_URL>
+cd SubCast
 
-## Build with Lovable
+# 2. Install dependencies (Auto-downloads libraries)
+npm install
 
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/b5c20e58-2cbf-423f-9c3d-2a0526845900).
-
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
-
-## Development
-
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
-
-```sh
-git clone <this-repository-url>
-cd <repository-name>
-npm i
+# 3. Start app
 npm run dev
 ```
+Open browser at: **`http://localhost:5173`**
+
+### Option B: 1-Click (Without Terminal)
+1. Download repository as ZIP & extract it.
+2. Double-click **`Start_SubCast.bat`** (it will auto-install dependencies & open browser).
+
+---
+
+## 3. Pendrive Sharing (Share without heavy node_modules)
+
+### Step 1: Export Clean Folder (Sender PC)
+1. Double-click **`Export_For_Pendrive.bat`**.
+2. It creates a clean folder on your Desktop: `Desktop\SubCast_Client_Ready` (without heavy `node_modules`).
+3. Copy this `SubCast_Client_Ready` folder to your Pendrive.
+
+### Step 2: Run on New / Client PC (Receiver PC)
+1. Copy the folder from Pendrive to the PC (Desktop or any drive).
+2. Make sure Node.js is installed (https://nodejs.org).
+3. Open folder in terminal and run:
+```bash
+npm install
+npm run dev
+```
+**OR simply double-click:**
+- **`Setup_SubCast.bat`** (auto-installs dependencies & creates a Desktop shortcut).
+- **`Start_SubCast.bat`** (auto-installs dependencies & launches app immediately).
+
+---
+
+## 4. Useful 1-Click Scripts
+
+| File | What it does |
+| :--- | :--- |
+| `Start_SubCast.bat` | Auto-installs dependencies + opens browser at localhost:5173. |
+| `Setup_SubCast.bat` | Full setup + creates desktop shortcut with app icon. |
+| `Launch_SubCast.vbs` | Runs app silently in background (no black CMD window). |
+| `Export_For_Pendrive.bat` | Exports clean, lightweight folder for pendrive sharing. |
+
+---
+
+## 5. Quick Troubleshooting
+
+- **Error: 'node' is not recognized**: Install Node.js from https://nodejs.org and restart terminal/PC.
+- **Port 5173 already in use**: App is already running in background. Open `http://localhost:5173` directly in browser.
+- **First Time Transcribe**: AI Whisper model (~40MB) downloads once in browser cache; afterwards it works 100% offline.

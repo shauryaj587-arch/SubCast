@@ -7,19 +7,34 @@ import {
   download,
   exportBurnedVideo,
   exportSupported,
+  filterAndShiftBlocksForTrim,
 } from "@/lib/export/exportVideo";
 import { Button } from "./ui";
 import { cn } from "@/lib/utils";
 
 export function ExportPanel({
-  files,
+  file,
   blocks,
   style,
+  trimStart = 0,
+  trimEnd = 0,
+  duration = 0,
+  bgMusicFile = null,
+  bgMusicVolume = 0.3,
+  originalVolume = 1.0,
+  bgMusicLoop = true,
   onClose,
 }: {
-  files: File[];
+  file: File;
   blocks: CaptionBlock[];
   style: CaptionStyle;
+  trimStart?: number;
+  trimEnd?: number;
+  duration?: number;
+  bgMusicFile?: File | null;
+  bgMusicVolume?: number;
+  originalVolume?: number;
+  bgMusicLoop?: boolean;
   onClose: () => void;
 }) {
   const [quality, setQuality] = useState<ExportQuality>("1080");
@@ -30,7 +45,11 @@ export function ExportPanel({
   const [done, setDone] = useState(false);
   const controller = useRef<AbortController | null>(null);
   const supported = exportSupported();
-  const baseName = files[0]?.name.replace(/\.[^.]+$/, "") || "reel";
+  const baseName = file.name.replace(/\.[^.]+$/, "");
+
+  const isTrimmed =
+    duration > 0 && (trimStart > 0.05 || (trimEnd > 0 && trimEnd < duration - 0.05));
+  const effectiveBlocks = blocks;
 
   async function run() {
     setBusy(true);
@@ -39,10 +58,16 @@ export function ExportPanel({
     controller.current = new AbortController();
     try {
       const blob = await exportBurnedVideo({
-        files,
+        file,
         blocks,
         style,
         quality,
+        trimStart: isTrimmed ? trimStart : undefined,
+        trimEnd: isTrimmed ? trimEnd : undefined,
+        bgMusicFile,
+        bgMusicVolume,
+        originalVolume,
+        bgMusicLoop,
         signal: controller.current.signal,
         onProgress: (v, l) => {
           setProgress(v);
@@ -75,6 +100,21 @@ export function ExportPanel({
             <p className="mt-1 text-xs text-muted-foreground">
               Captions are burned in, frame by frame, right here in your browser.
             </p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {isTrimmed && (
+                <div className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-0.5 text-[11px] font-medium text-primary">
+                  <span>
+                    ✂️ Trimmed: {trimStart.toFixed(1)}s – {trimEnd.toFixed(1)}s (
+                    {(trimEnd - trimStart).toFixed(1)}s)
+                  </span>
+                </div>
+              )}
+              {bgMusicFile && (
+                <div className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-0.5 text-[11px] font-medium text-primary">
+                  <span>🎵 Music ({Math.round(bgMusicVolume * 100)}%)</span>
+                </div>
+              )}
+            </div>
           </div>
           <Button
             variant="ghost"
@@ -140,7 +180,10 @@ export function ExportPanel({
             variant="outline"
             size="sm"
             onClick={() =>
-              download(new Blob([blocksToSrt(blocks)], { type: "text/plain" }), `${baseName}.srt`)
+              download(
+                new Blob([blocksToSrt(effectiveBlocks)], { type: "text/plain" }),
+                `${baseName}.srt`,
+              )
             }
           >
             Download .SRT
@@ -149,7 +192,10 @@ export function ExportPanel({
             variant="outline"
             size="sm"
             onClick={() =>
-              download(new Blob([blocksToVtt(blocks)], { type: "text/vtt" }), `${baseName}.vtt`)
+              download(
+                new Blob([blocksToVtt(effectiveBlocks)], { type: "text/vtt" }),
+                `${baseName}.vtt`,
+              )
             }
           >
             Download .VTT

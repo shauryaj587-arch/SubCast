@@ -7,6 +7,7 @@ import { UploadStage } from "@/components/studio/UploadStage";
 import { CaptionCanvas } from "@/components/studio/CaptionCanvas";
 import { PresetGallery } from "@/components/studio/PresetGallery";
 import { DesignPanel } from "@/components/studio/DesignPanel";
+import { EditingToolsPanel } from "@/components/studio/EditingToolsPanel";
 import { TranscriptPanel } from "@/components/studio/TranscriptPanel";
 import { ExportPanel } from "@/components/studio/ExportPanel";
 import { Logo } from "@/components/studio/Logo";
@@ -41,58 +42,170 @@ const LANG_LABEL: Record<TranscriptLanguage, string> = {
   hinglish: "Hinglish",
 };
 
+type StudioSnapshot = {
+  words: CaptionWord[];
+  clipRange: { start: number; end: number };
+  bgMusicFile: File | null;
+  bgMusicVolume: number;
+  originalVolume: number;
+  bgMusicLoop: boolean;
+};
+
 function Studio() {
-  const [files, setFiles] = useState<File[]>([]);
-  const [clipMeta, setClipMeta] = useState<{ start: number; end: number; duration: number }[]>([]);
+  const [file, setFile] = useState<File | null>(null);
   const [language, setLanguage] = useState<TranscriptLanguage>("hinglish");
   const [words, setWords] = useState<CaptionWord[]>([]);
+  const [clipRange, setClipRange] = useState<{ start: number; end: number }>({
+    start: 0,
+    end: 0,
+  });
+  const [originalWords, setOriginalWords] = useState<CaptionWord[]>([]);
+  const [bgMusicFile, setBgMusicFile] = useState<File | null>(null);
+  const [bgMusicVolume, setBgMusicVolume] = useState(0.3);
+  const [originalVolume, setOriginalVolume] = useState(1.0);
+  const [bgMusicLoop, setBgMusicLoop] = useState(true);
+
+  // Unified global studio history (tracks captions, trim, music, volume, etc.)
   const [history, setHistory] = useState<{
-    past: CaptionWord[][];
-    present: CaptionWord[] | null;
-    future: CaptionWord[][];
+    past: StudioSnapshot[];
+    present: StudioSnapshot | null;
+    future: StudioSnapshot[];
   }>({ past: [], present: null, future: [] });
+
+  const historyRef = useRef<{
+    past: StudioSnapshot[];
+    present: StudioSnapshot | null;
+    future: StudioSnapshot[];
+  }>({ past: [], present: null, future: [] });
+
+  const snapshotRef = useRef<StudioSnapshot>({
+    words: [],
+    clipRange: { start: 0, end: 0 },
+    bgMusicFile: null,
+    bgMusicVolume: 0.3,
+    originalVolume: 1.0,
+    bgMusicLoop: true,
+  });
+
+  const recordSnapshot = useCallback((patch: Partial<StudioSnapshot>) => {
+    const prev = snapshotRef.current;
+    const next: StudioSnapshot = {
+      words: patch.words !== undefined ? patch.words : prev.words,
+      clipRange: patch.clipRange !== undefined ? patch.clipRange : prev.clipRange,
+      bgMusicFile: patch.bgMusicFile !== undefined ? patch.bgMusicFile : prev.bgMusicFile,
+      bgMusicVolume: patch.bgMusicVolume !== undefined ? patch.bgMusicVolume : prev.bgMusicVolume,
+      originalVolume:
+        patch.originalVolume !== undefined ? patch.originalVolume : prev.originalVolume,
+      bgMusicLoop: patch.bgMusicLoop !== undefined ? patch.bgMusicLoop : prev.bgMusicLoop,
+    };
+    snapshotRef.current = next;
+
+    if (patch.words !== undefined) setWords(next.words);
+    if (patch.clipRange !== undefined) setClipRange(next.clipRange);
+    if (patch.bgMusicFile !== undefined) setBgMusicFile(next.bgMusicFile);
+    if (patch.bgMusicVolume !== undefined) setBgMusicVolume(next.bgMusicVolume);
+    if (patch.originalVolume !== undefined) setOriginalVolume(next.originalVolume);
+    if (patch.bgMusicLoop !== undefined) setBgMusicLoop(next.bgMusicLoop);
+
+    const h = historyRef.current;
+    const past = h.present ? [...h.past, h.present] : h.past;
+    const newPast = past.length > 50 ? past.slice(past.length - 50) : past;
+    const newHistory = { past: newPast, present: next, future: [] };
+    historyRef.current = newHistory;
+    setHistory(newHistory);
+  }, []);
+
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const bgMusicRef = useRef<HTMLAudioElement>(null);
+
+  const applySnapshot = useCallback((target: StudioSnapshot) => {
+    snapshotRef.current = target;
+    setWords(target.words);
+    setClipRange(target.clipRange);
+    setBgMusicFile(target.bgMusicFile);
+    setBgMusicVolume(target.bgMusicVolume);
+    setOriginalVolume(target.originalVolume);
+    setBgMusicLoop(target.bgMusicLoop);
+
+    const v = videoRef.current;
+    if (v) {
+      v.pause();
+      v.currentTime = target.clipRange.start;
+    }
+    setTime(0);
+    setPlaying(false);
+    if (bgMusicRef.current) {
+      bgMusicRef.current.pause();
+      bgMusicRef.current.currentTime = 0;
+    }
+  }, []);
+
+  const undo = useCallback(() => {
+    const h = historyRef.current;
+    if (h.past.length === 0) return;
+    const target = h.past[h.past.length - 1]!;
+    const newPast = h.past.slice(0, h.past.length - 1);
+    const newFuture = h.present ? [h.present, ...h.future] : h.future;
+
+    const newHistory = { past: newPast, present: target, future: newFuture };
+    historyRef.current = newHistory;
+    setHistory(newHistory);
+    applySnapshot(target);
+  }, [applySnapshot]);
+
+  const redo = useCallback(() => {
+    const h = historyRef.current;
+    if (h.future.length === 0) return;
+    const target = h.future[0]!;
+    const newFuture = h.future.slice(1);
+    const newPast = h.present ? [...h.past, h.present] : h.past;
+
+    const newHistory = { past: newPast, present: target, future: newFuture };
+    historyRef.current = newHistory;
+    setHistory(newHistory);
+    applySnapshot(target);
+  }, [applySnapshot]);
+
+  // Global keyboard shortcuts for Undo (Ctrl+Z) and Redo (Ctrl+Y or Ctrl+Shift+Z)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const isInput =
+        target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable;
+      if (isInput) return;
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+        if (e.shiftKey) {
+          e.preventDefault();
+          redo();
+        } else {
+          e.preventDefault();
+          undo();
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") {
+        e.preventDefault();
+        redo();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [undo, redo]);
 
   const dispatchWords = useCallback(
     (action: CaptionWord[] | ((prev: CaptionWord[]) => CaptionWord[]), saveHistory = true) => {
-      setWords((prev) => {
-        const next = typeof action === "function" ? action(prev) : action;
-        if (next === prev) return prev;
+      const prevWords = snapshotRef.current.words;
+      const nextWords = typeof action === "function" ? action(prevWords) : action;
+      if (nextWords === prevWords) return;
 
-        if (saveHistory) {
-          setHistory((h) => {
-            const past = h.present ? [...h.past, h.present] : h.past;
-            const newPast = past.length > 50 ? past.slice(past.length - 50) : past;
-            return { past: newPast, present: next, future: [] };
-          });
-        } else {
-          // Just update present without moving things to past
-          setHistory((h) => ({ ...h, present: next }));
-        }
-        return next;
-      });
+      if (saveHistory) {
+        recordSnapshot({ words: nextWords });
+      } else {
+        snapshotRef.current.words = nextWords;
+        setWords(nextWords);
+      }
     },
-    [],
+    [recordSnapshot],
   );
-
-  const undo = useCallback(() => {
-    setHistory((h) => {
-      if (h.past.length === 0) return h;
-      const newPresent = h.past[h.past.length - 1]!;
-      const newPast = h.past.slice(0, h.past.length - 1);
-      setWords(newPresent);
-      return { past: newPast, present: newPresent, future: [h.present!, ...h.future] };
-    });
-  }, []);
-
-  const redo = useCallback(() => {
-    setHistory((h) => {
-      if (h.future.length === 0) return h;
-      const newPresent = h.future[0]!;
-      const newFuture = h.future.slice(1);
-      setWords(newPresent);
-      return { past: [...h.past, h.present!], present: newPresent, future: newFuture };
-    });
-  }, []);
 
   const [style, setStyle] = useState<CaptionStyle>(
     () => CAPTION_PRESETS.find((p) => p.id === DEFAULT_PRESET_ID)!.style,
@@ -120,7 +233,7 @@ function Studio() {
     }
   }, [style, presetId, loaded]);
 
-  const [tab, setTab] = useState<"presets" | "design">("presets");
+  const [tab, setTab] = useState<"presets" | "design" | "tools">("presets");
   const [mobilePanel, setMobilePanel] = useState<"design" | "transcript" | null>(null);
   const [status, setStatus] = useState<{
     busy: boolean;
@@ -137,44 +250,72 @@ function Studio() {
   const [duration, setDuration] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [aspect, setAspect] = useState(9 / 16);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const urls = useMemo(() => files.map((f) => URL.createObjectURL(f)), [files]);
-  useEffect(() => () => void urls.forEach((u) => URL.revokeObjectURL(u)), [urls]);
+
+  const bgMusicUrl = useMemo(
+    () => (bgMusicFile ? URL.createObjectURL(bgMusicFile) : null),
+    [bgMusicFile],
+  );
+
+  useEffect(() => () => void (bgMusicUrl && URL.revokeObjectURL(bgMusicUrl)), [bgMusicUrl]);
+
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.volume = originalVolume;
+    }
+  }, [originalVolume]);
+
+  useEffect(() => {
+    if (bgMusicRef.current) {
+      bgMusicRef.current.volume = bgMusicVolume;
+    }
+  }, [bgMusicVolume]);
+
+  const url = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
+
+  useEffect(() => () => void (url && URL.revokeObjectURL(url)), [url]);
 
   const blocks = useMemo(
     () => groupIntoBlocks(words, style.wordsPerBlock),
     [words, style.wordsPerBlock],
   );
 
+  const clipDuration = useMemo(
+    () => (clipRange.end > clipRange.start ? clipRange.end - clipRange.start : duration),
+    [clipRange, duration],
+  );
+
+  const isTrimmedFromOriginal = useMemo(
+    () =>
+      duration > 0 &&
+      (clipRange.start > 0.05 || (clipRange.end > 0 && clipRange.end < duration - 0.05)),
+    [clipRange, duration],
+  );
+
   const runTranscription = useCallback(
-    async (
-      fs: File[],
-      lang: TranscriptLanguage,
-      metas: { start: number; duration: number }[],
-    ) => {
+    async (f: File, lang: TranscriptLanguage) => {
       setStatus({ busy: true, value: 0.02, label: "Preparing" });
       try {
-        let allWords: CaptionWord[] = [];
-        for (let i = 0; i < fs.length; i++) {
-          const file = fs[i]!;
-          const meta = metas[i]!;
-          const result = await generateSubtitles(file, lang, (value, label) =>
-            setStatus({
-              busy: true,
-              value: (i + value) / fs.length,
-              label: fs.length > 1 ? `Transcribing clip ${i + 1}/${fs.length} - ${label}` : label,
-            }),
-          );
-          // Offset words
-          const offsetWords = result.map((w) => ({
-            ...w,
-            start: w.start + meta.start,
-            end: w.end + meta.start,
-          }));
-          allWords = [...allWords, ...offsetWords];
-        }
-        setWords(allWords);
-        setHistory({ past: [], present: allWords, future: [] });
+        const result = await generateSubtitles(f, lang, (value, label) =>
+          setStatus({ busy: true, value, label }),
+        );
+        const initialSnap: StudioSnapshot = {
+          words: result,
+          clipRange:
+            snapshotRef.current.clipRange.end > 0
+              ? snapshotRef.current.clipRange
+              : duration > 0
+                ? { start: 0, end: duration }
+                : { start: 0, end: 0 },
+          bgMusicFile: snapshotRef.current.bgMusicFile,
+          bgMusicVolume: snapshotRef.current.bgMusicVolume,
+          originalVolume: snapshotRef.current.originalVolume,
+          bgMusicLoop: snapshotRef.current.bgMusicLoop,
+        };
+        snapshotRef.current = initialSnap;
+        historyRef.current = { past: [], present: initialSnap, future: [] };
+        setWords(result);
+        setOriginalWords(result);
+        setHistory({ past: [], present: initialSnap, future: [] });
         setStatus({ busy: false, value: 1, label: "" });
       } catch (e) {
         setStatus({
@@ -185,88 +326,122 @@ function Studio() {
         });
       }
     },
-    [],
+    [duration],
   );
 
   const start = useCallback(
-    async (fs: File[]) => {
-      setFiles(fs);
+    (f: File) => {
+      setFile(f);
       setWords([]);
-      setStatus({ busy: true, value: 0, label: "Analyzing clips..." });
-
-      const metas = [];
-      let currentStart = 0;
-      for (const f of fs) {
-        const u = URL.createObjectURL(f);
-        const v = document.createElement("video");
-        v.src = u;
-        await new Promise((r) => {
-          v.onloadedmetadata = r;
-          v.onerror = r;
-        });
-        const d = v.duration || 0;
-        metas.push({ start: currentStart, end: currentStart + d, duration: d });
-        currentStart += d;
-        URL.revokeObjectURL(u);
-      }
-      setClipMeta(metas);
-      setDuration(currentStart);
-
-      void runTranscription(fs, language, metas);
+      setOriginalWords([]);
+      setClipRange({ start: 0, end: 0 });
+      setBgMusicFile(null);
+      const cleanSnap: StudioSnapshot = {
+        words: [],
+        clipRange: { start: 0, end: 0 },
+        bgMusicFile: null,
+        bgMusicVolume: 0.3,
+        originalVolume: 1.0,
+        bgMusicLoop: true,
+      };
+      snapshotRef.current = cleanSnap;
+      historyRef.current = { past: [], present: null, future: [] };
+      setHistory({ past: [], present: null, future: [] });
+      void runTranscription(f, language);
     },
     [language, runTranscription],
   );
 
-  if (files.length === 0 || urls.length === 0) {
-    return <UploadStage language={language} onLanguage={setLanguage} onFile={start} />;
-  }
-
   const patch = (p: Partial<CaptionStyle>) => setStyle((s) => ({ ...s, ...p }));
 
-  const activeClipIndex = useMemo(() => {
-    if (!clipMeta.length) return 0;
-    const idx = clipMeta.findIndex((m) => time >= m.start && time < m.end);
-    return idx === -1 ? clipMeta.length - 1 : idx;
-  }, [time, clipMeta]);
-  const activeMeta = clipMeta[activeClipIndex];
-  const activeUrl = urls[activeClipIndex];
-
-  // Sync video.currentTime when user seeks (changes time manually)
-  const isSeeking = useRef(false);
-
   const seek = (t: number) => {
-    const target = Math.max(0, Math.min(t, duration || 0));
+    const v = videoRef.current;
+    if (!v) return;
+    const target = Math.max(0, Math.min(t, clipDuration));
+    v.currentTime = clipRange.start + target;
     setTime(target);
-    isSeeking.current = true;
+    if (bgMusicRef.current && bgMusicUrl) {
+      const bg = bgMusicRef.current;
+      const bgDur = bg.duration;
+      if (bgDur && bgDur > 0) {
+        bg.currentTime = bgMusicLoop ? target % bgDur : target;
+      }
+    }
   };
 
-  useEffect(() => {
-    if (!isSeeking.current) return;
-    const v = videoRef.current;
-    if (!v || !activeMeta) return;
-    
-    // We only want to set currentTime if the video src is ready
-    const localTarget = time - activeMeta.start;
-    if (v.readyState >= 1) {
-      v.currentTime = localTarget;
-      isSeeking.current = false;
-    } else {
-      // wait for load
-      const onLoaded = () => {
-        v.currentTime = localTarget;
-        isSeeking.current = false;
-        v.removeEventListener('loadedmetadata', onLoaded);
-      };
-      v.addEventListener('loadedmetadata', onLoaded);
-    }
-  }, [time, activeMeta]);
+  const applyTrim = (cutStart: number, cutEnd: number) => {
+    const currentClip = snapshotRef.current.clipRange;
+    const actualStart = currentClip.start + cutStart;
+    const actualEnd = currentClip.start + cutEnd;
+    const currentWords = snapshotRef.current.words;
+    const keptWords = currentWords
+      .filter((w) => w.end > cutStart && w.start < cutEnd)
+      .map((w) => ({
+        ...w,
+        start: Math.max(0, w.start - cutStart),
+        end: Math.max(0.05, w.end - cutStart),
+      }));
 
-  // Handle auto-play when src changes
-  useEffect(() => {
-    if (playing && videoRef.current) {
-      videoRef.current.play().catch(() => {});
+    recordSnapshot({
+      clipRange: { start: actualStart, end: actualEnd },
+      words: keptWords,
+    });
+
+    // Pause and jump video player to the new start
+    const v = videoRef.current;
+    if (v) {
+      v.pause();
+      v.currentTime = actualStart;
     }
-  }, [activeUrl, playing]);
+    setTime(0);
+    setPlaying(false);
+    if (bgMusicRef.current) {
+      bgMusicRef.current.pause();
+      bgMusicRef.current.currentTime = 0;
+    }
+  };
+
+  const resetToOriginal = () => {
+    recordSnapshot({
+      clipRange: { start: 0, end: duration },
+      words: originalWords.length > 0 ? originalWords : snapshotRef.current.words,
+    });
+    const v = videoRef.current;
+    if (v) {
+      v.pause();
+      v.currentTime = 0;
+    }
+    setTime(0);
+    setPlaying(false);
+    if (bgMusicRef.current) {
+      bgMusicRef.current.pause();
+      bgMusicRef.current.currentTime = 0;
+    }
+  };
+
+  const handleBgMusicFileChange = useCallback(
+    (f: File | null) => {
+      recordSnapshot({ bgMusicFile: f });
+    },
+    [recordSnapshot],
+  );
+
+  const handleBgMusicVolumeChange = useCallback((vol: number) => {
+    snapshotRef.current.bgMusicVolume = vol;
+    setBgMusicVolume(vol);
+  }, []);
+
+  const handleOriginalVolumeChange = useCallback((vol: number) => {
+    snapshotRef.current.originalVolume = vol;
+    setOriginalVolume(vol);
+  }, []);
+
+  const handleBgMusicLoopChange = useCallback(
+    (loop: boolean) => {
+      recordSnapshot({ bgMusicLoop: loop });
+    },
+    [recordSnapshot],
+  );
 
   const editWord = (id: string, text: string, saveHistory = true) =>
     dispatchWords((ws) => ws.map((w) => (w.id === id ? { ...w, text } : w)), saveHistory);
@@ -336,6 +511,10 @@ function Studio() {
     );
   };
 
+  if (!file || !url) {
+    return <UploadStage language={language} onLanguage={setLanguage} onFile={start} />;
+  }
+
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-background">
       <header className="flex shrink-0 items-center justify-between gap-4 border-b border-border px-4 py-3">
@@ -374,7 +553,17 @@ function Studio() {
           >
             Re-transcribe
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => setFile(null)}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setFile(null);
+              setWords([]);
+              setOriginalWords([]);
+              setClipRange({ start: 0, end: 0 });
+              setBgMusicFile(null);
+            }}
+          >
             New video
           </Button>
           <Button
@@ -406,21 +595,25 @@ function Studio() {
       </header>
 
       <div className="flex min-h-0 flex-1">
-        {/* left: designs */}
-        <aside className="hidden w-[300px] shrink-0 flex-col border-r border-border lg:flex">
-          <div className="flex gap-1 border-b border-border p-3">
-            {(["presets", "design"] as const).map((t) => (
+        {/* left: designs & tools */}
+        <aside className="hidden w-[310px] shrink-0 flex-col border-r border-border lg:flex">
+          <div className="flex gap-1 border-b border-border p-2.5">
+            {[
+              { id: "presets", label: "Designs" },
+              { id: "design", label: "Fine-tune" },
+              { id: "tools", label: "Editing tools" },
+            ].map((t) => (
               <button
-                key={t}
-                onClick={() => setTab(t)}
+                key={t.id}
+                onClick={() => setTab(t.id as "presets" | "design" | "tools")}
                 className={cn(
-                  "flex-1 rounded-lg px-3 py-1.5 text-xs font-medium capitalize transition-colors",
-                  tab === t
+                  "flex-1 truncate rounded-lg px-2 py-1.5 text-xs font-medium capitalize transition-colors text-center",
+                  tab === t.id
                     ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground hover:bg-surface-2",
                 )}
               >
-                {t === "presets" ? "Caption designs" : "Fine-tune"}
+                {t.label}
               </button>
             ))}
           </div>
@@ -433,8 +626,24 @@ function Studio() {
                   setStyle(p.style);
                 }}
               />
-            ) : (
+            ) : tab === "design" ? (
               <DesignPanel style={style} onChange={patch} />
+            ) : (
+              <EditingToolsPanel
+                clipDuration={clipDuration}
+                isTrimmedFromOriginal={isTrimmedFromOriginal}
+                onApplyTrim={applyTrim}
+                onResetToOriginal={resetToOriginal}
+                onSeek={seek}
+                bgMusicFile={bgMusicFile}
+                bgMusicVolume={bgMusicVolume}
+                originalVolume={originalVolume}
+                bgMusicLoop={bgMusicLoop}
+                onBgMusicFileChange={handleBgMusicFileChange}
+                onBgMusicVolumeChange={handleBgMusicVolumeChange}
+                onOriginalVolumeChange={handleOriginalVolumeChange}
+                onBgMusicLoopChange={handleBgMusicLoopChange}
+              />
             )}
           </div>
         </aside>
@@ -448,6 +657,7 @@ function Studio() {
                 blocks={blocks}
                 style={style}
                 aspect={aspect}
+                clipStart={clipRange.start}
                 onChangeStyle={patch}
               />
               {status.busy && (
@@ -464,44 +674,73 @@ function Studio() {
             </div>
             <video
               ref={videoRef}
-              src={activeUrl}
+              src={url}
               playsInline
               aria-hidden="true"
               tabIndex={-1}
               className="pointer-events-none absolute h-px w-px opacity-0"
               onLoadedMetadata={(e) => {
                 const v = e.currentTarget;
-                if (!duration) {
-                  // Only set aspect based on first video
-                  setAspect(v.videoWidth / v.videoHeight);
-                }
+                setDuration(v.duration);
+                setClipRange((prev) => {
+                  const next =
+                    prev.end === 0 || prev.end > v.duration ? { start: 0, end: v.duration } : prev;
+                  snapshotRef.current.clipRange = next;
+                  if (
+                    historyRef.current.present &&
+                    historyRef.current.present.clipRange.end === 0
+                  ) {
+                    historyRef.current.present.clipRange = next;
+                  }
+                  return next;
+                });
+                setAspect(v.videoWidth / v.videoHeight);
               }}
               onTimeUpdate={(e) => {
-                if (isSeeking.current || !activeMeta) return;
-                const localTime = e.currentTarget.currentTime;
-                // If it reached the end of the clip, it will fire onEnded next.
-                // We shouldn't let it drift past its known end if it's not the last clip.
-                const newGlobal = activeMeta.start + localTime;
-                setTime(newGlobal);
-              }}
-              onEnded={() => {
-                if (activeClipIndex < clipMeta.length - 1) {
-                  // Play next clip immediately
-                  const nextMeta = clipMeta[activeClipIndex + 1];
-                  setTime(nextMeta.start);
-                } else {
+                const raw = e.currentTarget.currentTime;
+                if (clipRange.end > 0 && raw >= clipRange.end) {
+                  e.currentTarget.pause();
+                  e.currentTarget.currentTime = clipRange.start;
+                  setTime(0);
                   setPlaying(false);
+                  if (bgMusicRef.current) {
+                    bgMusicRef.current.pause();
+                    bgMusicRef.current.currentTime = 0;
+                  }
+                } else if (raw < clipRange.start) {
+                  e.currentTarget.currentTime = clipRange.start;
+                  setTime(0);
+                } else {
+                  setTime(Math.max(0, Math.min(clipDuration, raw - clipRange.start)));
                 }
               }}
-              onPlay={() => setPlaying(true)}
+              onPlay={() => {
+                setPlaying(true);
+                if (bgMusicRef.current && bgMusicUrl) {
+                  const bg = bgMusicRef.current;
+                  bg.volume = bgMusicVolume;
+                  const bgDur = bg.duration;
+                  if (bgDur && bgDur > 0) {
+                    const rel = Math.max(0, (videoRef.current?.currentTime ?? 0) - clipRange.start);
+                    bg.currentTime = bgMusicLoop ? rel % bgDur : rel;
+                  }
+                  void bg.play().catch(() => {});
+                }
+              }}
               onPause={() => {
-                 if (activeClipIndex === clipMeta.length - 1 && videoRef.current?.ended) {
-                    setPlaying(false);
-                 } else if (time > 0 && time < duration) {
-                    setPlaying(false);
-                 }
+                setPlaying(false);
+                bgMusicRef.current?.pause();
               }}
             />
+            {bgMusicUrl && (
+              <audio
+                ref={bgMusicRef}
+                src={bgMusicUrl}
+                loop={bgMusicLoop}
+                preload="auto"
+                className="pointer-events-none absolute h-px w-px opacity-0"
+              />
+            )}
           </div>
 
           <div className="flex w-full max-w-2xl items-center gap-3 rounded-xl border border-border bg-surface px-3 py-2.5">
@@ -512,8 +751,18 @@ function Studio() {
               onClick={() => {
                 const v = videoRef.current;
                 if (!v) return;
-                if (v.paused) void v.play();
-                else v.pause();
+                if (v.paused) {
+                  if (
+                    clipRange.end > 0 &&
+                    (v.currentTime >= clipRange.end || v.currentTime < clipRange.start)
+                  ) {
+                    v.currentTime = clipRange.start;
+                    setTime(0);
+                  }
+                  void v.play();
+                } else {
+                  v.pause();
+                }
               }}
             >
               {playing ? "❚❚" : "▶"}
@@ -522,7 +771,7 @@ function Studio() {
             <input
               type="range"
               min={0}
-              max={duration || 0}
+              max={clipDuration || 0}
               step={0.02}
               value={time}
               onChange={(e) => seek(Number(e.target.value))}
@@ -530,7 +779,7 @@ function Studio() {
               className="h-1.5 flex-1 cursor-pointer appearance-none rounded-full bg-surface-3 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary"
             />
             <span className="font-mono text-[11px] text-muted-foreground">
-              {(duration || 0).toFixed(1)}s
+              {(clipDuration || 0).toFixed(1)}s
             </span>
           </div>
 
@@ -600,6 +849,13 @@ function Studio() {
                   >
                     Fine-tune
                   </Button>
+                  <Button
+                    variant={tab === "tools" ? "primary" : "outline"}
+                    size="sm"
+                    onClick={() => setTab("tools")}
+                  >
+                    Tools
+                  </Button>
                 </div>
                 {tab === "presets" ? (
                   <PresetGallery
@@ -609,8 +865,24 @@ function Studio() {
                       setStyle(p.style);
                     }}
                   />
-                ) : (
+                ) : tab === "design" ? (
                   <DesignPanel style={style} onChange={patch} />
+                ) : (
+                  <EditingToolsPanel
+                    clipDuration={clipDuration}
+                    isTrimmedFromOriginal={isTrimmedFromOriginal}
+                    onApplyTrim={applyTrim}
+                    onResetToOriginal={resetToOriginal}
+                    onSeek={seek}
+                    bgMusicFile={bgMusicFile}
+                    bgMusicVolume={bgMusicVolume}
+                    originalVolume={originalVolume}
+                    bgMusicLoop={bgMusicLoop}
+                    onBgMusicFileChange={handleBgMusicFileChange}
+                    onBgMusicVolumeChange={handleBgMusicVolumeChange}
+                    onOriginalVolumeChange={handleOriginalVolumeChange}
+                    onBgMusicLoopChange={handleBgMusicLoopChange}
+                  />
                 )}
               </>
             ) : (
@@ -637,9 +909,16 @@ function Studio() {
 
       {showExport && (
         <ExportPanel
-          files={files}
+          file={file}
           blocks={blocks}
           style={style}
+          trimStart={clipRange.start}
+          trimEnd={clipRange.end || duration}
+          duration={duration}
+          bgMusicFile={bgMusicFile}
+          bgMusicVolume={bgMusicVolume}
+          originalVolume={originalVolume}
+          bgMusicLoop={bgMusicLoop}
           onClose={() => setShowExport(false)}
         />
       )}

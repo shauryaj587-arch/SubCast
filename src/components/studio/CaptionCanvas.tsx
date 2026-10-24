@@ -12,18 +12,20 @@ export function CaptionCanvas({
   blocks,
   style,
   aspect,
+  clipStart = 0,
   onChangeStyle,
 }: {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   blocks: CaptionBlock[];
   style: CaptionStyle;
   aspect: number;
+  clipStart?: number;
   onChangeStyle?: (p: Partial<CaptionStyle>) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const stateRef = useRef({ blocks, style });
-  stateRef.current = { blocks, style };
+  const stateRef = useRef({ blocks, style, clipStart });
+  stateRef.current = { blocks, style, clipStart };
 
   const [dragging, setDragging] = useState(false);
   const [resizing, setResizing] = useState(false);
@@ -44,14 +46,8 @@ export function CaptionCanvas({
         if (ctx) {
           ctx.clearRect(0, 0, W, H);
           ctx.drawImage(video, 0, 0, W, H);
-          drawCaptions(
-            ctx,
-            W,
-            H,
-            video.currentTime,
-            stateRef.current.blocks,
-            stateRef.current.style,
-          );
+          const captionTime = Math.max(0, video.currentTime - (stateRef.current.clipStart ?? 0));
+          drawCaptions(ctx, W, H, captionTime, stateRef.current.blocks, stateRef.current.style);
           // Notice: we do NOT draw the watermark on the preview canvas anymore.
           // It is rendered as an HTML overlay below, so it can be interactive.
         }

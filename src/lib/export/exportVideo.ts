@@ -78,27 +78,49 @@ function seek(video: HTMLVideoElement, time: number) {
 }
 
 export async function exportBurnedVideo(opts: {
-  files: File[];
+  file: File;
   blocks: CaptionBlock[];
   style: CaptionStyle;
   quality: ExportQuality;
   fps?: number;
   sharpen?: boolean;
+  trimStart?: number;
+  trimEnd?: number;
+  bgMusicFile?: File | null;
+  bgMusicVolume?: number;
+  originalVolume?: number;
+  bgMusicLoop?: boolean;
   onProgress: (value: number, label: string) => void;
   signal?: AbortSignal;
 }): Promise<Blob> {
-  const { files, blocks, style, quality, onProgress } = opts;
+  const {
+    file,
+    blocks,
+    style,
+    quality,
+    onProgress,
+    trimStart,
+    trimEnd,
+    bgMusicFile,
+    bgMusicVolume = 0.3,
+    originalVolume = 1.0,
+    bgMusicLoop = true,
+  } = opts;
   const fps = opts.fps ?? 30;
   const preset = QUALITY_PRESETS[quality];
 
+  const url = URL.createObjectURL(file);
   let videoEncoder: VideoEncoder | null = null;
   let audioEncoder: AudioEncoder | null = null;
 
-  // Mount in DOM for fast hardware-accelerated frame decoding
+  // Declare video outside try so finally can always clean it up
   const video = document.createElement("video");
+  video.src = url;
   video.muted = true;
   video.playsInline = true;
   video.preload = "auto";
+
+  // Mount in DOM for fast hardware-accelerated frame decoding
   video.style.position = "fixed";
   video.style.top = "0";
   video.style.opacity = "0.001";
@@ -107,39 +129,29 @@ export async function exportBurnedVideo(opts: {
   video.style.height = "1px";
   document.body.appendChild(video);
 
-  const urls = files.map(f => URL.createObjectURL(f));
-
   try {
-    const metas: { url: string; duration: number; start: number }[] = [];
-    let totalDuration = 0;
-    let maxW = 0, maxH = 0;
-
-    for (let i = 0; i < urls.length; i++) {
-      const url = urls[i];
-      video.src = url;
-      await new Promise<void>((resolve, reject) => {
-        video.onloadedmetadata = () => resolve();
-        video.onerror = () => reject(new Error("Unsupported video file."));
-      });
-      if (i === 0) {
-         maxW = video.videoWidth;
-         maxH = video.videoHeight;
-      }
-      const d = video.duration || 0;
-      metas.push({ url, duration: d, start: totalDuration });
-      totalDuration += d;
+    await new Promise<void>((resolve, reject) => {
+      video.onloadedmetadata = () => resolve();
+      video.onerror = () => reject(new Error("Unsupported video file."));
+    });
+    if (!Number.isFinite(video.duration) || video.duration <= 0) {
+      throw new Error(
+        "This video has invalid duration metadata. Please re-export the source video first.",
+      );
     }
 
-    if (totalDuration <= 0) {
-      throw new Error("These videos have invalid duration metadata.");
-    }
-
-    const shortEdge = Math.min(maxW, maxH);
+    const srcW = video.videoWidth;
+    const srcH = video.videoHeight;
+    const shortEdge = Math.min(srcW, srcH);
     const scale = preset.height / shortEdge;
 
-    const outH = Math.round((maxH * scale) / 2) * 2;
-    const outW = Math.round((maxW * scale) / 2) * 2;
-    const totalFrames = Math.max(1, Math.floor(totalDuration * fps));
+    const outH = Math.round((srcH * scale) / 2) * 2;
+    const outW = Math.round((srcW * scale) / 2) * 2;
+    const duration = video.duration;
+    const effectiveStart = Math.max(0, Math.min(trimStart ?? 0, duration));
+    const effectiveEnd = Math.max(effectiveStart + 0.05, Math.min(trimEnd ?? duration, duration));
+    const trimmedDuration = effectiveEnd - effectiveStart;
+    const totalFrames = Math.max(1, Math.floor(trimmedDuration * fps));
 
     const codec = await pickCodec(outW, outH, preset.bitrate, fps);
     if (!codec) throw new Error("This browser cannot encode MP4 video.");
@@ -152,28 +164,30 @@ export async function exportBurnedVideo(opts: {
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
 
-    // ---- audio (decoded up-front so we can mux it alongside video) ----
+    // ---- audio (decoded up-front so we can mix & mux it alongside video) ----
     onProgress(0.02, "Preparing audio");
-    const audioBuffers: AudioBuffer[] = [];
-    let sampleRate = 48000;
-    let channels = 0;
-    
-    const ac = new AudioContext();
+    let audioBuffer: AudioBuffer | null = null;
+    let bgAudioBuffer: AudioBuffer | null = null;
+    const ac = new AudioContext({ sampleRate: 48000 });
     try {
-      for (const file of files) {
-         try {
-            const buf = await ac.decodeAudioData(await file.arrayBuffer());
-            audioBuffers.push(buf);
-            if (buf.numberOfChannels > channels) channels = Math.min(2, buf.numberOfChannels);
-            sampleRate = buf.sampleRate;
-         } catch {
-            audioBuffers.push(ac.createBuffer(1, 1, 48000));
-         }
-      }
-    } finally {
-      void ac.close();
+      audioBuffer = await ac.decodeAudioData(await file.arrayBuffer());
+    } catch {
+      audioBuffer = null;
     }
-    const hasAudio = channels > 0;
+    if (bgMusicFile) {
+      try {
+        bgAudioBuffer = await ac.decodeAudioData(await bgMusicFile.arrayBuffer());
+      } catch {
+        bgAudioBuffer = null;
+      }
+    }
+    void ac.close();
+
+    const hasAudio =
+      (!!audioBuffer && audioBuffer.numberOfChannels > 0) ||
+      (!!bgAudioBuffer && bgAudioBuffer.numberOfChannels > 0);
+    const channels = 2; // Always stereo for clean mixing
+    const sampleRate = 48000;
 
     const muxer = new Muxer({
       target: new ArrayBufferTarget(),
@@ -194,48 +208,37 @@ export async function exportBurnedVideo(opts: {
       height: outH,
       bitrate: preset.bitrate,
       framerate: fps,
-      latencyMode: "quality",
+      latencyMode: "quality", // "quality" never drops frames; "realtime" can cause lag/stutter
     });
-
-    let currentMetaIdx = 0;
-    video.src = metas[0].url;
 
     for (let i = 0; i < totalFrames; i++) {
       if (opts.signal?.aborted) throw new Error("Export cancelled");
-      const t = i / fps;
-      
-      // Determine which video we are in
-      let metaIdx = metas.findIndex(m => t >= m.start && t < m.start + m.duration);
-      if (metaIdx === -1) metaIdx = metas.length - 1;
-      
-      if (metaIdx !== currentMetaIdx) {
-        currentMetaIdx = metaIdx;
-        video.src = metas[metaIdx].url;
-        await new Promise<void>(r => { video.onloadedmetadata = () => r(); video.onerror = () => r(); });
-      }
-
-      const localT = t - metas[currentMetaIdx].start;
-      await seek(video, localT);
+      const relTime = i / fps;
+      const t = effectiveStart + relTime;
+      await seek(video, t);
 
       ctx.drawImage(video, 0, 0, outW, outH);
-      drawCaptions(ctx, outW, outH, t, blocks, style);
+      drawCaptions(ctx, outW, outH, relTime, blocks, style);
       drawWatermark(ctx, outW, outH, style);
 
       const frame = new VideoFrame(canvas, {
-        timestamp: Math.round(t * 1_000_000),
+        timestamp: Math.round(relTime * 1_000_000),
         duration: Math.round(1_000_000 / fps),
       });
       videoEncoder.encode(frame, { keyFrame: i % (fps * 2) === 0 });
       frame.close();
 
+      // Drain encoder queue to prevent backpressure
       while (videoEncoder.encodeQueueSize > 4) {
         await new Promise((r) => setTimeout(r, 5));
       }
 
+      // Unified progress: bar and label always match
       const pct = Math.round(((i + 1) / totalFrames) * 100);
       const progressValue = pct / 100;
       onProgress(progressValue, `Downloading… ${pct}%`);
 
+      // Yield to UI every 8 frames
       if (i % 8 === 0) {
         await new Promise((r) => setTimeout(r, 0));
       }
@@ -255,38 +258,68 @@ export async function exportBurnedVideo(opts: {
         sampleRate,
         bitrate: 160_000,
       });
-      const frameSize = 4096;
-      
-      // Concat logic
-      let globalOffset = 0;
-      
-      for (const buf of audioBuffers) {
-        const length = buf.length;
-        const planes: Float32Array[] = [];
-        for (let c = 0; c < channels; c++) {
-           planes.push(c < buf.numberOfChannels ? buf.getChannelData(c) : new Float32Array(length));
-        }
 
-        for (let offset = 0; offset < length; offset += frameSize) {
-          const count = Math.min(frameSize, length - offset);
-          const data = new Float32Array(count * channels);
-          for (let c = 0; c < channels; c++) {
-            data.set(planes[c]!.subarray(offset, offset + count), c * count);
+      const totalTrimmedSamples = Math.max(1, Math.floor(trimmedDuration * sampleRate));
+      const leftPlane = new Float32Array(totalTrimmedSamples);
+      const rightPlane = new Float32Array(totalTrimmedSamples);
+
+      // Mix original audio
+      if (audioBuffer && originalVolume > 0) {
+        const startSample = Math.floor(effectiveStart * sampleRate);
+        const endSample = Math.min(audioBuffer.length, Math.floor(effectiveEnd * sampleRate));
+        const origLeft = audioBuffer.getChannelData(0);
+        const origRight =
+          audioBuffer.numberOfChannels > 1 ? audioBuffer.getChannelData(1) : origLeft;
+        const count = Math.min(totalTrimmedSamples, Math.max(0, endSample - startSample));
+        for (let i = 0; i < count; i++) {
+          const idx = startSample + i;
+          if (idx < audioBuffer.length) {
+            leftPlane[i] += (origLeft[idx] ?? 0) * originalVolume;
+            rightPlane[i] += (origRight[idx] ?? 0) * originalVolume;
           }
-          const audioData = new AudioData({
-            format: "f32-planar",
-            sampleRate,
-            numberOfFrames: count,
-            numberOfChannels: channels,
-            timestamp: Math.round((globalOffset / sampleRate) * 1_000_000),
-            data,
-          });
-          audioEncoder.encode(audioData);
-          audioData.close();
-          globalOffset += count;
         }
       }
-      
+
+      // Mix background music
+      if (bgAudioBuffer && bgMusicVolume > 0) {
+        const bgLeft = bgAudioBuffer.getChannelData(0);
+        const bgRight =
+          bgAudioBuffer.numberOfChannels > 1 ? bgAudioBuffer.getChannelData(1) : bgLeft;
+        const bgLen = bgAudioBuffer.length;
+        if (bgLen > 0) {
+          for (let i = 0; i < totalTrimmedSamples; i++) {
+            if (!bgMusicLoop && i >= bgLen) break;
+            const bgIdx = bgMusicLoop ? i % bgLen : i;
+            leftPlane[i] += (bgLeft[bgIdx] ?? 0) * bgMusicVolume;
+            rightPlane[i] += (bgRight[bgIdx] ?? 0) * bgMusicVolume;
+          }
+        }
+      }
+
+      // Clamp values to prevent distortion
+      for (let i = 0; i < totalTrimmedSamples; i++) {
+        leftPlane[i] = Math.max(-1, Math.min(1, leftPlane[i]!));
+        rightPlane[i] = Math.max(-1, Math.min(1, rightPlane[i]!));
+      }
+
+      const frameSize = 4096;
+      for (let offset = 0; offset < totalTrimmedSamples; offset += frameSize) {
+        const count = Math.min(frameSize, totalTrimmedSamples - offset);
+        const data = new Float32Array(count * channels);
+        data.set(leftPlane.subarray(offset, offset + count), 0);
+        data.set(rightPlane.subarray(offset, offset + count), count);
+
+        const audioData = new AudioData({
+          format: "f32-planar",
+          sampleRate,
+          numberOfFrames: count,
+          numberOfChannels: channels,
+          timestamp: Math.round((offset / sampleRate) * 1_000_000),
+          data,
+        });
+        audioEncoder.encode(audioData);
+        audioData.close();
+      }
       await audioEncoder.flush();
       audioEncoder.close();
       audioEncoder = null;
@@ -300,9 +333,35 @@ export async function exportBurnedVideo(opts: {
   } finally {
     if (videoEncoder?.state !== "closed") videoEncoder?.close();
     if (audioEncoder?.state !== "closed") audioEncoder?.close();
-    urls.forEach(u => URL.revokeObjectURL(u));
+    URL.revokeObjectURL(url);
     video.remove();
   }
+}
+
+export function filterAndShiftBlocksForTrim(
+  blocks: CaptionBlock[],
+  trimStart: number,
+  trimEnd: number,
+): CaptionBlock[] {
+  return blocks
+    .filter((b) => b.end > trimStart && b.start < trimEnd)
+    .map((b) => {
+      const bStart = Math.max(0, b.start - trimStart);
+      const bEnd = Math.max(bStart + 0.05, b.end - trimStart);
+      const shiftedWords = b.words
+        .filter((w) => w.end > trimStart && w.start < trimEnd)
+        .map((w) => ({
+          ...w,
+          start: Math.max(0, w.start - trimStart),
+          end: Math.max(Math.max(0, w.start - trimStart) + 0.05, w.end - trimStart),
+        }));
+      return {
+        ...b,
+        start: bStart,
+        end: bEnd,
+        words: shiftedWords.length ? shiftedWords : b.words,
+      };
+    });
 }
 
 /* ---------- caption file exports ---------- */

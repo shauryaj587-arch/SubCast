@@ -16,24 +16,25 @@ export function UploadStage({
 }: {
   language: TranscriptLanguage;
   onLanguage: (l: TranscriptLanguage) => void;
-  onFile: (f: File[]) => void;
+  onFile: (f: File) => void;
 }) {
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const accept = useCallback(
-    (files: FileList | File[] | undefined | null) => {
-      if (!files || files.length === 0) return;
-      const validFiles = Array.from(files).filter(
-        (f) => f.type.startsWith("video/") && f.size <= 400 * 1024 * 1024,
-      );
-      if (validFiles.length === 0) {
-        setError("Please upload valid MP4, MOV or WebM videos under 400MB.");
+    (file: File | undefined) => {
+      if (!file) return;
+      if (!file.type.startsWith("video/")) {
+        setError("That file isn't a video. Upload an MP4, MOV or WebM reel.");
+        return;
+      }
+      if (file.size > 400 * 1024 * 1024) {
+        setError("Keep it under 400 MB — reels render much faster that way.");
         return;
       }
       setError(null);
-      onFile(validFiles);
+      onFile(file);
     },
     [onFile],
   );
@@ -101,7 +102,7 @@ export function UploadStage({
           onDrop={(e) => {
             e.preventDefault();
             setDragging(false);
-            accept(e.dataTransfer.files);
+            accept(e.dataTransfer.files[0]);
           }}
           className={`animate-rise mt-6 rounded-2xl border border-dashed p-10 transition-all duration-300 ${
             dragging ? "border-primary bg-primary/8 scale-[1.01]" : "border-border bg-surface/50"
@@ -142,10 +143,9 @@ export function UploadStage({
           <input
             ref={inputRef}
             type="file"
-            multiple
             accept="video/*"
             className="hidden"
-            onChange={(e) => accept(e.target.files)}
+            onChange={(e) => accept(e.target.files?.[0])}
           />
           {error && <p className="mt-4 text-xs text-destructive">{error}</p>}
         </div>

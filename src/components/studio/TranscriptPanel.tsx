@@ -45,26 +45,6 @@ export function TranscriptPanel({
   const [showReplace, setShowReplace] = useState(false);
   const [mode, setMode] = useState<"words" | "lines">("words");
 
-  // Keyboard shortcuts for Undo/Redo
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
-        if (e.shiftKey) {
-          e.preventDefault();
-          onRedo();
-        } else {
-          e.preventDefault();
-          onUndo();
-        }
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") {
-        e.preventDefault();
-        onRedo();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onUndo, onRedo]);
-
   const activeId = useMemo(() => {
     const b = blocks.find((x) => currentTime >= x.start - 0.05 && currentTime <= x.end + 0.1);
     return b?.id ?? null;
