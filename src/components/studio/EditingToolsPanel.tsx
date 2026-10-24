@@ -1,6 +1,73 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "./ui";
 import { cn } from "@/lib/utils";
+import { DEFAULT_VIDEO_FILTERS, type VideoFilters } from "@/lib/captions/types";
+
+export const FILTER_PRESETS: {
+  id: string;
+  name: string;
+  emoji: string;
+  filters: VideoFilters;
+}[] = [
+  {
+    id: "normal",
+    name: "Original",
+    emoji: "✨",
+    filters: DEFAULT_VIDEO_FILTERS,
+  },
+  {
+    id: "vibrant",
+    name: "Vibrant",
+    emoji: "🔥",
+    filters: {
+      brightness: 105,
+      contrast: 115,
+      saturate: 135,
+      warmth: 0,
+      grayscale: 0,
+      preset: "vibrant",
+    },
+  },
+  {
+    id: "warm",
+    name: "Warm",
+    emoji: "☀️",
+    filters: {
+      brightness: 102,
+      contrast: 108,
+      saturate: 112,
+      warmth: 22,
+      grayscale: 0,
+      preset: "warm",
+    },
+  },
+  {
+    id: "cinematic",
+    name: "Moody",
+    emoji: "🎬",
+    filters: {
+      brightness: 96,
+      contrast: 122,
+      saturate: 90,
+      warmth: 12,
+      grayscale: 0,
+      preset: "cinematic",
+    },
+  },
+  {
+    id: "bw",
+    name: "B&W",
+    emoji: "🖤",
+    filters: {
+      brightness: 100,
+      contrast: 125,
+      saturate: 0,
+      warmth: 0,
+      grayscale: 100,
+      preset: "bw",
+    },
+  },
+];
 
 export function EditingToolsPanel({
   clipDuration,
@@ -16,6 +83,8 @@ export function EditingToolsPanel({
   onBgMusicVolumeChange,
   onOriginalVolumeChange,
   onBgMusicLoopChange,
+  videoFilters = DEFAULT_VIDEO_FILTERS,
+  onVideoFiltersChange,
 }: {
   clipDuration: number;
   isTrimmedFromOriginal: boolean;
@@ -30,12 +99,15 @@ export function EditingToolsPanel({
   onBgMusicVolumeChange: (vol: number) => void;
   onOriginalVolumeChange: (vol: number) => void;
   onBgMusicLoopChange: (loop: boolean) => void;
+  videoFilters?: VideoFilters;
+  onVideoFiltersChange: (filters: VideoFilters, commitSnapshot?: boolean) => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Both categories are collapsed / contracted by default as requested
+  // All categories are collapsed / contracted by default as requested
   const [openTrim, setOpenTrim] = useState(false);
   const [openMusic, setOpenMusic] = useState(false);
+  const [openFilters, setOpenFilters] = useState(false);
 
   const safeDuration = clipDuration > 0 ? clipDuration : 1;
   const [start, setStart] = useState(0);
@@ -53,6 +125,15 @@ export function EditingToolsPanel({
   const startPercent = Math.max(0, Math.min(100, (start / safeDuration) * 100));
   const endPercent = Math.max(0, Math.min(100, (end / safeDuration) * 100));
   const keepPercent = Math.max(0, endPercent - startPercent);
+
+  const isFiltered =
+    videoFilters.brightness !== 100 ||
+    videoFilters.contrast !== 100 ||
+    videoFilters.saturate !== 100 ||
+    videoFilters.warmth !== 0 ||
+    videoFilters.grayscale !== 0;
+
+  const activePreset = FILTER_PRESETS.find((p) => p.id === videoFilters.preset);
 
   return (
     <div className="space-y-3">
@@ -413,6 +494,233 @@ export function EditingToolsPanel({
                       className="h-4 w-4 cursor-pointer rounded border-border text-primary accent-primary"
                     />
                   </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ---------------- 3. Video Filters & Colors Category Card ---------------- */}
+      <div className="rounded-xl border border-border bg-surface transition-colors shadow-sm overflow-hidden">
+        {/* Clickable Header with Animated Arrow */}
+        <button
+          type="button"
+          onClick={() => setOpenFilters((prev) => !prev)}
+          className="flex w-full items-center justify-between p-3.5 text-left transition-colors hover:bg-surface-2/60 select-none"
+          aria-expanded={openFilters}
+        >
+          <div className="flex items-center gap-2.5 min-w-0 pr-2">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-surface-2 text-sm">
+              🎨
+            </span>
+            <div className="min-w-0">
+              <h3 className="font-display text-xs font-bold uppercase tracking-wider text-foreground">
+                Video Filters
+              </h3>
+              <p className="truncate text-[11px] text-muted-foreground">
+                Colors, brightness & cinematic looks
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {isFiltered && (
+              <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold text-primary capitalize">
+                {activePreset ? activePreset.name : "Custom"}
+              </span>
+            )}
+            <div
+              className={cn(
+                "flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition-transform duration-300",
+                openFilters ? "rotate-180 text-foreground bg-surface-2" : "rotate-0",
+              )}
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </div>
+          </div>
+        </button>
+
+        {/* Smooth Expand/Contract Animated Container */}
+        <div
+          className={cn(
+            "grid transition-[grid-template-rows,opacity] duration-300 ease-in-out",
+            openFilters
+              ? "grid-rows-[1fr] opacity-100"
+              : "grid-rows-[0fr] opacity-0 pointer-events-none",
+          )}
+        >
+          <div className="overflow-hidden">
+            <div className="border-t border-border/70 p-4 pt-3.5 space-y-4">
+              {/* 1-Click Presets */}
+              <div>
+                <label className="mb-2 block text-xs font-semibold text-foreground">
+                  Cinematic Presets
+                </label>
+                <div className="grid grid-cols-5 gap-1.5">
+                  {FILTER_PRESETS.map((p) => {
+                    const isSelected = videoFilters.preset === p.id;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => onVideoFiltersChange(p.filters, true)}
+                        className={cn(
+                          "flex flex-col items-center justify-center gap-1 rounded-lg border py-2 px-1 text-center transition-all",
+                          isSelected
+                            ? "border-primary bg-primary/10 text-primary shadow-xs ring-1 ring-primary/40 font-semibold"
+                            : "border-border/70 bg-surface-2/60 text-muted-foreground hover:bg-surface-2 hover:text-foreground",
+                        )}
+                      >
+                        <span className="text-sm">{p.emoji}</span>
+                        <span className="text-[10px] leading-tight truncate w-full">{p.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Sliders */}
+              <div className="space-y-3 pt-1 border-t border-border/50">
+                {/* Brightness */}
+                <div>
+                  <label className="block">
+                    <div className="mb-1 flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">Brightness</span>
+                      <span className="font-mono text-[11px] font-semibold text-foreground">
+                        {videoFilters.brightness}%
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={50}
+                      max={150}
+                      step={1}
+                      value={videoFilters.brightness}
+                      onChange={(e) =>
+                        onVideoFiltersChange(
+                          { ...videoFilters, brightness: Number(e.target.value), preset: "custom" },
+                          false,
+                        )
+                      }
+                      onPointerUp={() =>
+                        onVideoFiltersChange({ ...videoFilters, preset: "custom" }, true)
+                      }
+                      className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-surface-3 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary"
+                    />
+                  </label>
+                </div>
+
+                {/* Contrast */}
+                <div>
+                  <label className="block">
+                    <div className="mb-1 flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">Contrast</span>
+                      <span className="font-mono text-[11px] font-semibold text-foreground">
+                        {videoFilters.contrast}%
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={50}
+                      max={150}
+                      step={1}
+                      value={videoFilters.contrast}
+                      onChange={(e) =>
+                        onVideoFiltersChange(
+                          { ...videoFilters, contrast: Number(e.target.value), preset: "custom" },
+                          false,
+                        )
+                      }
+                      onPointerUp={() =>
+                        onVideoFiltersChange({ ...videoFilters, preset: "custom" }, true)
+                      }
+                      className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-surface-3 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary"
+                    />
+                  </label>
+                </div>
+
+                {/* Saturation */}
+                <div>
+                  <label className="block">
+                    <div className="mb-1 flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">Saturation</span>
+                      <span className="font-mono text-[11px] font-semibold text-foreground">
+                        {videoFilters.saturate}%
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={200}
+                      step={2}
+                      value={videoFilters.saturate}
+                      onChange={(e) =>
+                        onVideoFiltersChange(
+                          { ...videoFilters, saturate: Number(e.target.value), preset: "custom" },
+                          false,
+                        )
+                      }
+                      onPointerUp={() =>
+                        onVideoFiltersChange({ ...videoFilters, preset: "custom" }, true)
+                      }
+                      className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-surface-3 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary"
+                    />
+                  </label>
+                </div>
+
+                {/* Warmth */}
+                <div>
+                  <label className="block">
+                    <div className="mb-1 flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">Warmth (Golden tone)</span>
+                      <span className="font-mono text-[11px] font-semibold text-foreground">
+                        {videoFilters.warmth}%
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={1}
+                      value={videoFilters.warmth}
+                      onChange={(e) =>
+                        onVideoFiltersChange(
+                          { ...videoFilters, warmth: Number(e.target.value), preset: "custom" },
+                          false,
+                        )
+                      }
+                      onPointerUp={() =>
+                        onVideoFiltersChange({ ...videoFilters, preset: "custom" }, true)
+                      }
+                      className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-surface-3 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {/* Reset button */}
+              {isFiltered && (
+                <div className="pt-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onVideoFiltersChange(DEFAULT_VIDEO_FILTERS, true)}
+                    className="w-full text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    ↺ Reset Filters to Original
+                  </Button>
                 </div>
               )}
             </div>

@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { drawCaptions } from "@/lib/captions/renderer";
-import type { CaptionBlock, CaptionStyle } from "@/lib/captions/types";
+import {
+  type CaptionBlock,
+  type CaptionStyle,
+  type VideoFilters,
+  buildFilterString,
+} from "@/lib/captions/types";
 import { cn } from "@/lib/utils";
 
 /**
@@ -13,6 +18,7 @@ export function CaptionCanvas({
   style,
   aspect,
   clipStart = 0,
+  videoFilters,
   onChangeStyle,
 }: {
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -20,12 +26,13 @@ export function CaptionCanvas({
   style: CaptionStyle;
   aspect: number;
   clipStart?: number;
+  videoFilters?: VideoFilters;
   onChangeStyle?: (p: Partial<CaptionStyle>) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const stateRef = useRef({ blocks, style, clipStart });
-  stateRef.current = { blocks, style, clipStart };
+  const stateRef = useRef({ blocks, style, clipStart, videoFilters });
+  stateRef.current = { blocks, style, clipStart, videoFilters };
 
   const [dragging, setDragging] = useState(false);
   const [resizing, setResizing] = useState(false);
@@ -45,7 +52,15 @@ export function CaptionCanvas({
         const ctx = canvas.getContext("2d");
         if (ctx) {
           ctx.clearRect(0, 0, W, H);
-          ctx.drawImage(video, 0, 0, W, H);
+          const filterStr = buildFilterString(stateRef.current.videoFilters);
+          if (filterStr && filterStr !== "none") {
+            ctx.save();
+            ctx.filter = filterStr;
+            ctx.drawImage(video, 0, 0, W, H);
+            ctx.restore();
+          } else {
+            ctx.drawImage(video, 0, 0, W, H);
+          }
           const captionTime = Math.max(0, video.currentTime - (stateRef.current.clipStart ?? 0));
           drawCaptions(ctx, W, H, captionTime, stateRef.current.blocks, stateRef.current.style);
           // Notice: we do NOT draw the watermark on the preview canvas anymore.

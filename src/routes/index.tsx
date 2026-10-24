@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { CAPTION_PRESETS, DEFAULT_PRESET_ID } from "@/lib/captions/presets";
-import type { CaptionStyle, CaptionWord, TranscriptLanguage } from "@/lib/captions/types";
+import {
+  DEFAULT_VIDEO_FILTERS,
+  type CaptionStyle,
+  type CaptionWord,
+  type TranscriptLanguage,
+  type VideoFilters,
+} from "@/lib/captions/types";
 import { generateSubtitles, groupIntoBlocks, retimeBlockText } from "@/lib/transcribe";
 import { UploadStage } from "@/components/studio/UploadStage";
 import { CaptionCanvas } from "@/components/studio/CaptionCanvas";
@@ -49,6 +55,7 @@ type StudioSnapshot = {
   bgMusicVolume: number;
   originalVolume: number;
   bgMusicLoop: boolean;
+  videoFilters: VideoFilters;
 };
 
 function Studio() {
@@ -64,6 +71,7 @@ function Studio() {
   const [bgMusicVolume, setBgMusicVolume] = useState(0.3);
   const [originalVolume, setOriginalVolume] = useState(1.0);
   const [bgMusicLoop, setBgMusicLoop] = useState(true);
+  const [videoFilters, setVideoFilters] = useState<VideoFilters>(DEFAULT_VIDEO_FILTERS);
 
   // Unified global studio history (tracks captions, trim, music, volume, etc.)
   const [history, setHistory] = useState<{
@@ -85,6 +93,7 @@ function Studio() {
     bgMusicVolume: 0.3,
     originalVolume: 1.0,
     bgMusicLoop: true,
+    videoFilters: DEFAULT_VIDEO_FILTERS,
   });
 
   const recordSnapshot = useCallback((patch: Partial<StudioSnapshot>) => {
@@ -97,6 +106,7 @@ function Studio() {
       originalVolume:
         patch.originalVolume !== undefined ? patch.originalVolume : prev.originalVolume,
       bgMusicLoop: patch.bgMusicLoop !== undefined ? patch.bgMusicLoop : prev.bgMusicLoop,
+      videoFilters: patch.videoFilters !== undefined ? patch.videoFilters : prev.videoFilters,
     };
     snapshotRef.current = next;
 
@@ -106,6 +116,7 @@ function Studio() {
     if (patch.bgMusicVolume !== undefined) setBgMusicVolume(next.bgMusicVolume);
     if (patch.originalVolume !== undefined) setOriginalVolume(next.originalVolume);
     if (patch.bgMusicLoop !== undefined) setBgMusicLoop(next.bgMusicLoop);
+    if (patch.videoFilters !== undefined) setVideoFilters(next.videoFilters);
 
     const h = historyRef.current;
     const past = h.present ? [...h.past, h.present] : h.past;
@@ -126,6 +137,7 @@ function Studio() {
     setBgMusicVolume(target.bgMusicVolume);
     setOriginalVolume(target.originalVolume);
     setBgMusicLoop(target.bgMusicLoop);
+    setVideoFilters(target.videoFilters ?? DEFAULT_VIDEO_FILTERS);
 
     const v = videoRef.current;
     if (v) {
@@ -310,6 +322,7 @@ function Studio() {
           bgMusicVolume: snapshotRef.current.bgMusicVolume,
           originalVolume: snapshotRef.current.originalVolume,
           bgMusicLoop: snapshotRef.current.bgMusicLoop,
+          videoFilters: snapshotRef.current.videoFilters,
         };
         snapshotRef.current = initialSnap;
         historyRef.current = { past: [], present: initialSnap, future: [] };
@@ -336,6 +349,7 @@ function Studio() {
       setOriginalWords([]);
       setClipRange({ start: 0, end: 0 });
       setBgMusicFile(null);
+      setVideoFilters(DEFAULT_VIDEO_FILTERS);
       const cleanSnap: StudioSnapshot = {
         words: [],
         clipRange: { start: 0, end: 0 },
@@ -343,6 +357,7 @@ function Studio() {
         bgMusicVolume: 0.3,
         originalVolume: 1.0,
         bgMusicLoop: true,
+        videoFilters: DEFAULT_VIDEO_FILTERS,
       };
       snapshotRef.current = cleanSnap;
       historyRef.current = { past: [], present: null, future: [] };
@@ -439,6 +454,17 @@ function Studio() {
   const handleBgMusicLoopChange = useCallback(
     (loop: boolean) => {
       recordSnapshot({ bgMusicLoop: loop });
+    },
+    [recordSnapshot],
+  );
+
+  const handleVideoFiltersChange = useCallback(
+    (filters: VideoFilters, commitSnapshot = false) => {
+      setVideoFilters(filters);
+      snapshotRef.current.videoFilters = filters;
+      if (commitSnapshot) {
+        recordSnapshot({ videoFilters: filters });
+      }
     },
     [recordSnapshot],
   );
@@ -643,6 +669,8 @@ function Studio() {
                 onBgMusicVolumeChange={handleBgMusicVolumeChange}
                 onOriginalVolumeChange={handleOriginalVolumeChange}
                 onBgMusicLoopChange={handleBgMusicLoopChange}
+                videoFilters={videoFilters}
+                onVideoFiltersChange={handleVideoFiltersChange}
               />
             )}
           </div>
@@ -658,6 +686,7 @@ function Studio() {
                 style={style}
                 aspect={aspect}
                 clipStart={clipRange.start}
+                videoFilters={videoFilters}
                 onChangeStyle={patch}
               />
               {status.busy && (
@@ -882,6 +911,8 @@ function Studio() {
                     onBgMusicVolumeChange={handleBgMusicVolumeChange}
                     onOriginalVolumeChange={handleOriginalVolumeChange}
                     onBgMusicLoopChange={handleBgMusicLoopChange}
+                    videoFilters={videoFilters}
+                    onVideoFiltersChange={handleVideoFiltersChange}
                   />
                 )}
               </>
@@ -915,6 +946,7 @@ function Studio() {
           trimStart={clipRange.start}
           trimEnd={clipRange.end || duration}
           duration={duration}
+          videoFilters={videoFilters}
           bgMusicFile={bgMusicFile}
           bgMusicVolume={bgMusicVolume}
           originalVolume={originalVolume}

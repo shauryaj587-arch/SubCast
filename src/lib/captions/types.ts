@@ -88,3 +88,32 @@ export type CaptionPreset = {
 export type TranscriptLanguage = "en" | "hi" | "hinglish";
 
 export type ExportQuality = "720" | "1080" | "1440";
+
+export type VideoFilters = {
+  brightness: number;
+  contrast: number;
+  saturate: number;
+  warmth: number;
+  grayscale: number;
+  preset: string;
+};
+
+export const DEFAULT_VIDEO_FILTERS: VideoFilters = {
+  brightness: 100,
+  contrast: 100,
+  saturate: 100,
+  warmth: 0,
+  grayscale: 0,
+  preset: "normal",
+};
+
+export function buildFilterString(filters?: VideoFilters): string {
+  if (!filters) return "none";
+  const parts: string[] = [];
+  if (filters.brightness !== 100) parts.push(`brightness(${filters.brightness}%)`);
+  if (filters.contrast !== 100) parts.push(`contrast(${filters.contrast}%)`);
+  if (filters.saturate !== 100) parts.push(`saturate(${filters.saturate}%)`);
+  if (filters.warmth > 0) parts.push(`sepia(${filters.warmth}%)`);
+  if (filters.grayscale > 0) parts.push(`grayscale(${filters.grayscale}%)`);
+  return parts.length > 0 ? parts.join(" ") : "none";
+}

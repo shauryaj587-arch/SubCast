@@ -1,6 +1,12 @@
 import { ArrayBufferTarget, Muxer } from "mp4-muxer";
 import { drawCaptions, drawWatermark } from "@/lib/captions/renderer";
-import type { CaptionBlock, CaptionStyle, ExportQuality } from "@/lib/captions/types";
+import {
+  type CaptionBlock,
+  type CaptionStyle,
+  type ExportQuality,
+  type VideoFilters,
+  buildFilterString,
+} from "@/lib/captions/types";
 
 export const QUALITY_PRESETS: Record<
   ExportQuality,
@@ -86,6 +92,7 @@ export async function exportBurnedVideo(opts: {
   sharpen?: boolean;
   trimStart?: number;
   trimEnd?: number;
+  videoFilters?: VideoFilters;
   bgMusicFile?: File | null;
   bgMusicVolume?: number;
   originalVolume?: number;
@@ -101,6 +108,7 @@ export async function exportBurnedVideo(opts: {
     onProgress,
     trimStart,
     trimEnd,
+    videoFilters,
     bgMusicFile,
     bgMusicVolume = 0.3,
     originalVolume = 1.0,
@@ -217,7 +225,15 @@ export async function exportBurnedVideo(opts: {
       const t = effectiveStart + relTime;
       await seek(video, t);
 
-      ctx.drawImage(video, 0, 0, outW, outH);
+      const filterStr = buildFilterString(videoFilters);
+      if (filterStr && filterStr !== "none") {
+        ctx.save();
+        ctx.filter = filterStr;
+        ctx.drawImage(video, 0, 0, outW, outH);
+        ctx.restore();
+      } else {
+        ctx.drawImage(video, 0, 0, outW, outH);
+      }
       drawCaptions(ctx, outW, outH, relTime, blocks, style);
       drawWatermark(ctx, outW, outH, style);
 

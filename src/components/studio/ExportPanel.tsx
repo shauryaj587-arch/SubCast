@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import type { CaptionBlock, CaptionStyle, ExportQuality } from "@/lib/captions/types";
+import type { CaptionBlock, CaptionStyle, ExportQuality, VideoFilters } from "@/lib/captions/types";
 import {
   QUALITY_PRESETS,
   blocksToSrt,
@@ -19,6 +19,7 @@ export function ExportPanel({
   trimStart = 0,
   trimEnd = 0,
   duration = 0,
+  videoFilters,
   bgMusicFile = null,
   bgMusicVolume = 0.3,
   originalVolume = 1.0,
@@ -31,6 +32,7 @@ export function ExportPanel({
   trimStart?: number;
   trimEnd?: number;
   duration?: number;
+  videoFilters?: VideoFilters;
   bgMusicFile?: File | null;
   bgMusicVolume?: number;
   originalVolume?: number;
@@ -64,6 +66,7 @@ export function ExportPanel({
         quality,
         trimStart: isTrimmed ? trimStart : undefined,
         trimEnd: isTrimmed ? trimEnd : undefined,
+        videoFilters,
         bgMusicFile,
         bgMusicVolume,
         originalVolume,
